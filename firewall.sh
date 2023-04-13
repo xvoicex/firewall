@@ -27,4 +27,6 @@ echo -e 更新防火墙规则...
 firewall-cmd --reload
 c=$(firewall-cmd --list-rich-rules |grep ipv4 |awk '{printf $4 "\n"}' |sed 's/address=//g;s/"//g' | wc -l)
 echo -e 共$c条,禁用IP列表：
-firewall-cmd --list-rich-rules |grep ipv4 |awk '{printf $4 "\n"}' |sed 's/address=//g;s/"//g'
+firewall-cmd --list-rich-rules |grep ipv4 |awk '{printf $4 "\n"}' |sed 's/address=//g;s/"//g' > /root/firewall/README.md
+cat README.md
+su root -c 'cd /root/firewall/ && git add README.md && git commit -m "$time" && git push'
