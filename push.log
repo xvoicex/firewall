@@ -1,27 +1,6 @@
 Already on 'main'
-D	2023-03-14@17:29:54.log
-D	2023-03-14@17:30:58.log
-D	2023-03-14@17:38:14.log
-D	2023-03-14@17:39:46.log
-D	2023-03-14@17:42:55.log
-D	2023-03-14@17:49:37.log
-D	2023-03-14@17:50:46.log
-D	2023-03-20@08:30:01.log
-D	2023-03-27@08:30:01.log
-D	2023-04-03@08:30:01.log
-D	2023-04-10@08:30:01.log
-D	firewall.log
-D	lastb-2023-03-14@17:29:54.log
-D	lastb-2023-03-14@17:30:58.log
-D	lastb-2023-03-14@17:38:14.log
-D	lastb-2023-03-14@17:39:46.log
-D	lastb-2023-03-14@17:42:55.log
-D	lastb-2023-03-14@17:49:37.log
-D	lastb-2023-03-14@17:50:46.log
-D	lastb-2023-03-20@08:30:01.log
-D	lastb-2023-03-27@08:30:01.log
-D	lastb-2023-04-03@08:30:01.log
-D	lastb-2023-04-10@08:30:01.log
+M	git.sh
+M	push.log
 当前分支: 
  * main
   master 
@@ -29,157 +8,36 @@ D	lastb-2023-04-10@08:30:01.log
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    2023-03-14@17:29:54.log
-#	deleted:    2023-03-14@17:30:58.log
-#	deleted:    2023-03-14@17:38:14.log
-#	deleted:    2023-03-14@17:39:46.log
-#	deleted:    2023-03-14@17:42:55.log
-#	deleted:    2023-03-14@17:49:37.log
-#	deleted:    2023-03-14@17:50:46.log
-#	deleted:    2023-03-20@08:30:01.log
-#	deleted:    2023-03-27@08:30:01.log
-#	deleted:    2023-04-03@08:30:01.log
-#	deleted:    2023-04-10@08:30:01.log
-#	deleted:    firewall.log
-#	deleted:    lastb-2023-03-14@17:29:54.log
-#	deleted:    lastb-2023-03-14@17:30:58.log
-#	deleted:    lastb-2023-03-14@17:38:14.log
-#	deleted:    lastb-2023-03-14@17:39:46.log
-#	deleted:    lastb-2023-03-14@17:42:55.log
-#	deleted:    lastb-2023-03-14@17:49:37.log
-#	deleted:    lastb-2023-03-14@17:50:46.log
-#	deleted:    lastb-2023-03-20@08:30:01.log
-#	deleted:    lastb-2023-03-27@08:30:01.log
-#	deleted:    lastb-2023-04-03@08:30:01.log
-#	deleted:    lastb-2023-04-10@08:30:01.log
+#	modified:   git.sh
+#	modified:   push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git_localhost.sh
-#	log/
-#	push.log
 no changes added to commit (use "git add" and/or "git commit -a")
  >>> # On branch main
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    2023-03-14@17:29:54.log
-#	deleted:    2023-03-14@17:30:58.log
-#	deleted:    2023-03-14@17:38:14.log
-#	deleted:    2023-03-14@17:39:46.log
-#	deleted:    2023-03-14@17:42:55.log
-#	deleted:    2023-03-14@17:49:37.log
-#	deleted:    2023-03-14@17:50:46.log
-#	deleted:    2023-03-20@08:30:01.log
-#	deleted:    2023-03-27@08:30:01.log
-#	deleted:    2023-04-03@08:30:01.log
-#	deleted:    2023-04-10@08:30:01.log
-#	deleted:    firewall.log
-#	deleted:    lastb-2023-03-14@17:29:54.log
-#	deleted:    lastb-2023-03-14@17:30:58.log
-#	deleted:    lastb-2023-03-14@17:38:14.log
-#	deleted:    lastb-2023-03-14@17:39:46.log
-#	deleted:    lastb-2023-03-14@17:42:55.log
-#	deleted:    lastb-2023-03-14@17:49:37.log
-#	deleted:    lastb-2023-03-14@17:50:46.log
-#	deleted:    lastb-2023-03-20@08:30:01.log
-#	deleted:    lastb-2023-03-27@08:30:01.log
-#	deleted:    lastb-2023-04-03@08:30:01.log
-#	deleted:    lastb-2023-04-10@08:30:01.log
+#	modified:   git.sh
+#	modified:   push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git_localhost.sh
-#	log/
-#	push.log
 no changes added to commit (use "git add" and/or "git commit -a") <<< 
  <<< nothing to commit
 >>>>>>====================================<<<<<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
+#
+#	modified:   git.sh
+#	modified:   push.log
+#
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    2023-03-14@17:29:54.log
-#	deleted:    2023-03-14@17:30:58.log
-#	deleted:    2023-03-14@17:38:14.log
-#	deleted:    2023-03-14@17:39:46.log
-#	deleted:    2023-03-14@17:42:55.log
-#	deleted:    2023-03-14@17:49:37.log
-#	deleted:    2023-03-14@17:50:46.log
-#	deleted:    2023-03-20@08:30:01.log
-#	deleted:    2023-03-27@08:30:01.log
-#	deleted:    2023-04-03@08:30:01.log
-#	deleted:    2023-04-10@08:30:01.log
-#	deleted:    firewall.log
-#	deleted:    lastb-2023-03-14@17:29:54.log
-#	deleted:    lastb-2023-03-14@17:30:58.log
-#	deleted:    lastb-2023-03-14@17:38:14.log
-#	deleted:    lastb-2023-03-14@17:39:46.log
-#	deleted:    lastb-2023-03-14@17:42:55.log
-#	deleted:    lastb-2023-03-14@17:49:37.log
-#	deleted:    lastb-2023-03-14@17:50:46.log
-#	deleted:    lastb-2023-03-20@08:30:01.log
-#	deleted:    lastb-2023-03-27@08:30:01.log
-#	deleted:    lastb-2023-04-03@08:30:01.log
-#	deleted:    lastb-2023-04-10@08:30:01.log
+#	modified:   push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git_localhost.sh
-#	log/
-#	push.log
-no changes added to commit (use "git add" and/or "git commit -a")
-[main 942c9a1] 2023-04-13 11:06:52
- 23 files changed, 66966 deletions(-)
- delete mode 100644 2023-03-14@17:29:54.log
- delete mode 100644 2023-03-14@17:30:58.log
- delete mode 100644 2023-03-14@17:38:14.log
- delete mode 100644 2023-03-14@17:39:46.log
- delete mode 100644 2023-03-14@17:42:55.log
- delete mode 100644 2023-03-14@17:49:37.log
- delete mode 100644 2023-03-14@17:50:46.log
- delete mode 100644 2023-03-20@08:30:01.log
- delete mode 100644 2023-03-27@08:30:01.log
- delete mode 100644 2023-04-03@08:30:01.log
- delete mode 100644 2023-04-10@08:30:01.log
- delete mode 100644 firewall.log
- delete mode 100644 lastb-2023-03-14@17:29:54.log
- delete mode 100644 lastb-2023-03-14@17:30:58.log
- delete mode 100644 lastb-2023-03-14@17:38:14.log
- delete mode 100644 lastb-2023-03-14@17:39:46.log
- delete mode 100644 lastb-2023-03-14@17:42:55.log
- delete mode 100644 lastb-2023-03-14@17:49:37.log
- delete mode 100644 lastb-2023-03-14@17:50:46.log
- delete mode 100644 lastb-2023-03-20@08:30:01.log
- delete mode 100644 lastb-2023-03-27@08:30:01.log
- delete mode 100644 lastb-2023-04-03@08:30:01.log
- delete mode 100644 lastb-2023-04-10@08:30:01.log
->>>>>>=======================================<<<<<<
-
->>>>>> 执行 git push 之前,本地文件状态如下 <<<<<<
-# On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
-#   (use "git push" to publish your local commits)
-#
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git_localhost.sh
-#	log/
-#	push.log
-nothing added to commit but untracked files present (use "git add" to track)
->>>>>> 当前分支:main <<<<<<
-
->>>>>> push origin main
-fatal: unable to access 'https://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@github.com/xvoicex/firewall.git/': TCP connection reset by peer
->>>>>>=====================================<<<<<<

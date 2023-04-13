@@ -51,7 +51,7 @@ function git_add(){
 
     #read -p "是否确定add？Y|N : " add_params
     if [[ $add_params == "Y" || $add_params == "y" ]]; then 
-            git add localhost
+            git add .
     else 
         exit 
     fi
