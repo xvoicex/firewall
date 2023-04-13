@@ -1,7 +1,7 @@
 #!/bin/sh
 # Shell脚本提交git代码 简单,快速,高效
 # 
-author = xvoicex
+#author = "xvoicex"
 #git add 
 add_params="Y"
 #git commit 
@@ -18,9 +18,10 @@ echo ' >>>>>> start push <<<<<< '
 echo " ====== 当前分支 ====== "  
 branch= git branch
 echo $branch 
-
+echo " ====================== "  
+echo -e ""
 # 判断参数1是否包含参数2
-contains_str(){
+function contains_str(){
     echo " >>> $1 <<< "
     echo " <<< $2"
     
@@ -33,7 +34,8 @@ contains_str(){
     
 }
 
-git_add(){
+function git_add(){
+	echo -e ""
     echo ">>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<"
     git status 
     statusResult=$(git status)
@@ -49,13 +51,15 @@ git_add(){
 
     #read -p "是否确定add？Y|N : " add_params
     if [[ $add_params == "Y" || $add_params == "y" ]]; then 
-            git add .
+            git add localhost
     else 
         exit 
-    fi     
+    fi
+	echo ">>>>>>====================================<<<<<<"
 }
 
-git_commit(){
+function git_commit(){
+     echo -e ""
      echo ">>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<"
      git status 
      #read -p "是否确定commit？Y|N : " commit_params
@@ -71,9 +75,11 @@ git_commit(){
      else 
          exit    
      fi
+	 echo ">>>>>>=======================================<<<<<<"
 }
 
-git_push(){
+function git_push(){
+	echo -e ""
     echo ">>>>>> 执行 git push 之前,本地文件状态如下 <<<<<<"
     git status 
     current_branch=$(git symbolic-ref --short -q HEAD) 
@@ -84,7 +90,7 @@ git_push(){
         exit
     fi
     #read -p "请输入远程git地址别名,默认是origin: " origin_params 
-    echo -e "\n"
+    echo -e ""
     #read -p "请输入远程分支名称,默认是当前分支: " branch_params
     push_result="";
     if [[ -z $origin_params && -z $branch_params ]]; then
@@ -109,40 +115,44 @@ git_push(){
     else
         echo ">>>>>> end push <<<<<<"    
     fi
-    
+	echo ">>>>>>=====================================<<<<<<"
 }
 
 
 
+function start_1(){
+    git checkout $branch
+    echo -e "当前分支: \n $(git branch) "  
+    git_add
+    git_commit
+    git_push
+}
 
-
-
-
-
-#read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
-if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
-        echo  "你输入的是:  $branch "
+function start_2(){
+		echo  "你输入的是:  $branch "
         statusResult=$(git status)
         to_commit="Changes to be committed"
         contains_str "$statusResult" "$to_commit"
         if [[ $? != 1 ]]; then
-            git_add;
+            git_add
         else 
             git add . 
             echo " ====== 本地没有需要add的文件，直接commit ====== "
         fi
-        git_commit;
-        git_push;
-        exit;
+        git_commit
+        git_push
+}
+
+
+#read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
+if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
+        start_2 > /root/firewall/push.log
+        exit
 
 elif [[ $branch == "Q" || $branch == "q" ]] ; then
         #echo "你输入的是： $branch ,代表退出当前操作！" 
         exit 
 else  
-    git checkout $branch
-    echo -e "当前分支: \n $(git branch) "  
-    git_add;
-    git_commit;
-    git_push;
-    exit;
+	start_1 > /root/firewall/push.log
+    exit
 fi
