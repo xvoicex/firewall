@@ -1,5 +1,7 @@
 Already on 'main'
 M	git.sh
+M	log/push.log
+D	push.log
 当前分支: 
  * main
   master 
@@ -7,70 +9,51 @@ M	git.sh
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
 # Changes not staged for commit:
-#   (use "git add <file>..." to update what will be committed)
+#   (use "git add/rm <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
 #	modified:   git.sh
+#	modified:   log/push.log
+#	deleted:    push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git.log
-#	git_localhost.sh
-#	push.log
 no changes added to commit (use "git add" and/or "git commit -a")
  >>> # On branch main
 # Changes not staged for commit:
-#   (use "git add <file>..." to update what will be committed)
+#   (use "git add/rm <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
 #	modified:   git.sh
+#	modified:   log/push.log
+#	deleted:    push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git.log
-#	git_localhost.sh
-#	push.log
 no changes added to commit (use "git add" and/or "git commit -a") <<< 
  <<< nothing to commit
+warning: You ran 'git add' with neither '-A (--all)' or '--ignore-removal',
+whose behaviour will change in Git 2.0 with respect to paths you removed.
+Paths like 'push.log' that are
+removed from your working tree are ignored with this version of Git.
+
+* 'git add --ignore-removal <pathspec>', which is the current default,
+  ignores paths you removed from your working tree.
+
+* 'git add --all <pathspec>' will let you also record the removals.
+
+Run 'git status' to check the paths you removed from your working tree.
+
 >>>>>>====================================<<<<<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Changes not staged for commit:
-#   (use "git add <file>..." to update what will be committed)
-#   (use "git checkout -- <file>..." to discard changes in working directory)
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
 #
 #	modified:   git.sh
+#	modified:   log/push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
+# Changes not staged for commit:
+#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	git.log
-#	git_localhost.sh
-#	push.log
-no changes added to commit (use "git add" and/or "git commit -a")
-[main 14062c0] 2023-04-13 11:02:33
- 1 file changed, 2 insertions(+), 2 deletions(-)
->>>>>>=======================================<<<<<<
-
->>>>>> 执行 git push 之前,本地文件状态如下 <<<<<<
-# On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
-#   (use "git push" to publish your local commits)
+#	modified:   log/push.log
+#	deleted:    push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	git.log
-#	git_localhost.sh
-#	push.log
-nothing added to commit but untracked files present (use "git add" to track)
->>>>>> 当前分支:main <<<<<<
-
->>>>>> push origin main
-remote: Resolving deltas:   0% (0/2)[Kremote: Resolving deltas:  50% (1/2)[Kremote: Resolving deltas: 100% (2/2)[Kremote: Resolving deltas: 100% (2/2), completed with 2 local objects.[K
-To https://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@github.com/xvoicex/firewall.git
-   5e46dc1..14062c0  main -> main
->>>>>>=====================================<<<<<<
