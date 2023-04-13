@@ -47,7 +47,7 @@ git_add(){
         exit
     fi
 
-    read -p "是否确定add？Y|N : " add_params
+    #read -p "是否确定add？Y|N : " add_params
     if [[ $add_params == "Y" || $add_params == "y" ]]; then 
             git add .
     else 
@@ -58,9 +58,9 @@ git_add(){
 git_commit(){
      echo ">>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<"
      git status 
-     read -p "是否确定commit？Y|N : " commit_params
+     #read -p "是否确定commit？Y|N : " commit_params
      if [[ $commit_params == "Y" || $commit_params == "y" ]] ; then
-             read -p "请输入commit信息: " commit_msg
+             #read -p "请输入commit信息: " commit_msg
              if [ -z $commit_msg  ] ; then 
                  git commit -m "$now" .
              else
@@ -78,14 +78,14 @@ git_push(){
     git status 
     current_branch=$(git symbolic-ref --short -q HEAD) 
     echo ">>>>>> 当前分支:$current_branch <<<<<<"
-    read -p "是否确定push？Y|N : " push_confirm
+    #read -p "是否确定push？Y|N : " push_confirm
     if [[ $push_confirm != "Y" &&  $push_confirm != "y" ]]; then
         echo ">>>>>> end push <<<<<<"
         exit
     fi
-    read -p "请输入远程git地址别名,默认是origin: " origin_params 
+    #read -p "请输入远程git地址别名,默认是origin: " origin_params 
     echo -e "\n"
-    read -p "请输入远程分支名称,默认是当前分支: " branch_params
+    #read -p "请输入远程分支名称,默认是当前分支: " branch_params
     push_result="";
     if [[ -z $origin_params && -z $branch_params ]]; then
         echo ">>>>>> push origin $current_branch"
@@ -119,9 +119,9 @@ git_push(){
 
 
 
-read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
+#read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
 if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
-        # echo  "你输入的是:  $branch "
+        echo  "你输入的是:  $branch "
         statusResult=$(git status)
         to_commit="Changes to be committed"
         contains_str "$statusResult" "$to_commit"
@@ -136,7 +136,7 @@ if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then
         exit;
 
 elif [[ $branch == "Q" || $branch == "q" ]] ; then
-        # echo "你输入的是： $branch ,代表退出当前操作！" 
+        #echo "你输入的是： $branch ,代表退出当前操作！" 
         exit 
 else  
     git checkout $branch
