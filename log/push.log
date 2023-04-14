@@ -1,5 +1,5 @@
 Already on 'main'
-M	git.sh
+M	git_localhost.sh
 M	log/push.log
 当前分支: 
  * main
@@ -11,7 +11,7 @@ M	log/push.log
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   git.sh
+#	modified:   git_localhost.sh
 #	modified:   log/push.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
@@ -20,7 +20,7 @@ no changes added to commit (use "git add" and/or "git commit -a")
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   git.sh
+#	modified:   git_localhost.sh
 #	modified:   log/push.log
 #
 no changes added to commit (use "git add" and/or "git commit -a") <<< 
@@ -29,15 +29,11 @@ no changes added to commit (use "git add" and/or "git commit -a") <<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Changes to be committed:
-#   (use "git reset HEAD <file>..." to unstage)
-#
-#	modified:   git.sh
-#	modified:   log/push.log
-#
 # Changes not staged for commit:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   git_localhost.sh
 #	modified:   log/push.log
 #
+no changes added to commit (use "git add" and/or "git commit -a")

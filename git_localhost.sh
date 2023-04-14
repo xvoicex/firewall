@@ -13,11 +13,14 @@ branch_params="main"
 
 branch="main"
 
+file="$1"
+
 now=$(date "+%Y-%m-%d %H:%M:%S")
 echo ' >>>>>> start push <<<<<< '  
 echo " ====== 当前分支 ====== "  
 branch= git branch
 echo $branch 
+#echo $file
 echo " ====================== "  
 echo -e ""
 # 判断参数1是否包含参数2
@@ -51,7 +54,7 @@ function git_add(){
 
     #read -p "是否确定add？Y|N : " add_params
     if [[ $add_params == "Y" || $add_params == "y" ]]; then 
-            git add localhost
+            git add $file
     else 
         exit 
     fi
@@ -59,14 +62,14 @@ function git_add(){
 }
 
 function git_commit(){
-     echo -e "\n"
+     echo -e ""
      echo ">>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<"
      git status 
      #read -p "是否确定commit？Y|N : " commit_params
      if [[ $commit_params == "Y" || $commit_params == "y" ]] ; then
              #read -p "请输入commit信息: " commit_msg
              if [ -z $commit_msg  ] ; then 
-                 git commit -m "$(cat localhost)" localhost
+                 git commit -m "$(cat $file)" .
              else
                  git commit -m $commit_msg .    
              fi
@@ -136,7 +139,7 @@ function start_2(){
         if [[ $? != 1 ]]; then
             git_add
         else 
-            git add . 
+            git add .
             echo " ====== 本地没有需要add的文件，直接commit ====== "
         fi
         git_commit
@@ -146,13 +149,15 @@ function start_2(){
 
 #read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
 if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
-        start_2 #> git.log
+        start_2 > /root/firewall/log/push.log 2>&1
+	cat /root/firewall/log/push.log
         exit
 
 elif [[ $branch == "Q" || $branch == "q" ]] ; then
         #echo "你输入的是： $branch ,代表退出当前操作！" 
         exit 
 else  
-	start_1 #> git.log
+	start_1 > /root/firewall/log/push.log 2>&1
+	cat /root/firewall/log/push.log
     exit
 fi
