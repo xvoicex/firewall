@@ -154,7 +154,7 @@ function start_2(){
 if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
 
         start_2 > /root/firewall/log/push.log 2>&1
-	cat /root/firewall/log/push.log
+	#cat /root/firewall/log/push.log
         exit
 
 elif [[ $branch == "Q" || $branch == "q" ]] ; then
@@ -162,7 +162,7 @@ elif [[ $branch == "Q" || $branch == "q" ]] ; then
         exit 
 else  
 	start_1 > /root/firewall/log/push.log 2>&1
-	cat /root/firewall/log/push.log
+	#cat /root/firewall/log/push.log
     exit
 fi
 
