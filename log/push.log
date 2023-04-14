@@ -1,6 +1,6 @@
 Already on 'main'
 M	log/push.log
-Your branch is ahead of 'origin/main' by 1 commit.
+Your branch is ahead of 'origin/main' by 2 commits.
   (use "git push" to publish your local commits)
 当前分支: 
  * main
@@ -8,7 +8,7 @@ Your branch is ahead of 'origin/main' by 1 commit.
 
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
+# Your branch is ahead of 'origin/main' by 2 commits.
 #   (use "git push" to publish your local commits)
 #
 # Changes not staged for commit:
@@ -19,7 +19,7 @@ Your branch is ahead of 'origin/main' by 1 commit.
 #
 no changes added to commit (use "git add" and/or "git commit -a")
  >>> # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
+# Your branch is ahead of 'origin/main' by 2 commits.
 #   (use "git push" to publish your local commits)
 #
 # Changes not staged for commit:
@@ -34,7 +34,7 @@ no changes added to commit (use "git add" and/or "git commit -a") <<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
+# Your branch is ahead of 'origin/main' by 2 commits.
 #   (use "git push" to publish your local commits)
 #
 # Changes to be committed:
