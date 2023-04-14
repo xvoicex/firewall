@@ -14,6 +14,7 @@ branch_params="main"
 branch="main"
 
 file="$1"
+commit="$2"
 
 now=$(date "+%Y-%m-%d %H:%M:%S")
 echo ' >>>>>> start push <<<<<< '  
@@ -69,7 +70,7 @@ function git_commit(){
      if [[ $commit_params == "Y" || $commit_params == "y" ]] ; then
              #read -p "请输入commit信息: " commit_msg
              if [ -z $commit_msg  ] ; then 
-                 git commit -m "$(cat $file)" .
+                 git commit -m "$commit" .
              else
                  git commit -m $commit_msg .    
              fi
@@ -124,15 +125,17 @@ function git_push(){
 
 
 function start_1(){
-    git checkout $branch
-    echo -e "当前分支: \n $(git branch) "  
-    git_add
-    git_commit
-    git_push
+	echo "start_1"
+	git checkout $branch
+	echo -e "当前分支: \n $(git branch) "  
+	git_add
+	git_commit
+	git_push
 }
 
 function start_2(){
-		echo  "你输入的是:  $branch "
+	echo "start_2"
+	echo  "你输入的是:  $branch "
         statusResult=$(git status)
         to_commit="Changes to be committed"
         contains_str "$statusResult" "$to_commit"
@@ -149,6 +152,7 @@ function start_2(){
 
 #read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
 if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
+
         start_2 > /root/firewall/log/push.log 2>&1
 	cat /root/firewall/log/push.log
         exit
