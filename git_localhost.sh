@@ -39,7 +39,7 @@ function contains_str(){
 }
 
 function git_add(){
-	echo -e ""
+    echo -e ""
     echo ">>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<"
     git status 
     statusResult=$(git status)
