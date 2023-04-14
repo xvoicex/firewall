@@ -70,9 +70,9 @@ function git_commit(){
      if [[ $commit_params == "Y" || $commit_params == "y" ]] ; then
              #read -p "请输入commit信息: " commit_msg
              if [ -z $commit_msg  ] ; then 
-                 git commit -m "$commit" .
+                 git commit -m "$commit" $file
              else
-                 git commit -m $commit_msg .    
+                 git commit -m $commit_msg $file    
              fi
      elif [[ $commit_params == "N" || $commit_params == "n" ]] ; then 
           exit 
