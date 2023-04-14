@@ -139,7 +139,7 @@ function start_2(){
         if [[ $? != 1 ]]; then
             git_add
         else 
-            git add .
+            git add $file
             echo " ====== 本地没有需要add的文件，直接commit ====== "
         fi
         git_commit
