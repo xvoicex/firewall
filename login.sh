@@ -9,7 +9,7 @@ do
 			echo 退出
                         break
                 else
-                        echo  -e  ###################  正在添加白名单IP：$b ################### 2>&1
+                        echo  -e  正在添加白名单IP：$b 
                         firewall-cmd --add-rich-rule='rule family="ipv4" source address='$b' accept'
                 fi
 done
