@@ -12,7 +12,7 @@ do
                         break
                 else
                         echo ""
-                        echo  -e  ###################  正在添加白名单IP：$b ###################
+                        echo  -e  正在添加白名单IP：$b 
                         firewall-cmd --permanent --remove-rich-rule='rule family="ipv4" source address='$b' accept'
                 fi
 done
