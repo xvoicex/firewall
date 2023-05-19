@@ -12,7 +12,7 @@ do
                         break
                 else
                         echo ""
-                        echo  ###################  正在移除端口：$b ###################
+                        echo  正在移除端口：$b 
                         firewall-cmd --zone=public --remove-port=$b"/tcp" --permanent
                         firewall-cmd --zone=public --remove-port=$b"/udp" --permanent
                 fi
