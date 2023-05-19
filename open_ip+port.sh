@@ -17,7 +17,7 @@ do
                         break
                 else
 			echo ""
-                        echo -e ###################  正在放通IP $b 到端口 $0  ###################
+                        echo -e 正在放通IP $b 到端口 $0 
                         firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address='$b' port protocol="tcp" port='$1' accept'
 			firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address='$b' port protocol="udp" port='$1' accept'
                 fi
