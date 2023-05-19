@@ -1,3 +1,4 @@
+#/bin/bash
 time=$(date +%F@%T)
 file=/root/firewall/ip
 lines=$(cat $file |wc -l)
@@ -11,8 +12,8 @@ do
                         echo -e 请检查 $file
                         break
                 else
-                        echo ""
-                        echo  -e  ###################  正在添加白名单IP：$b ###################
+                        echo -e  ""
+                        echo  -e  正在添加白名单IP：$b 
                         firewall-cmd --permanent --add-rich-rule='rule family="ipv4" source address='$b' accept'
                 fi
 done
