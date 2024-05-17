@@ -1,137 +1,50 @@
 Already on 'main'
-M	localhost
-D	log/2023-10-16@08:30:01.log
-D	log/2023-10-23@08:30:01.log
-D	log/2023-10-30@08:30:01.log
-D	log/2023-11-06@08:30:01.log
-D	log/2023-11-13@08:30:01.log
-D	log/lastb-2023-10-16@08:30:01.log
-D	log/lastb-2023-10-23@08:30:01.log
-D	log/lastb-2023-10-30@08:30:01.log
-D	log/lastb-2023-11-06@08:30:01.log
-D	log/lastb-2023-11-13@08:30:01.log
 M	log/push.log
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
 当前分支: 
  * main
   master 
 
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Changes to be committed:
-#   (use "git reset HEAD <file>..." to unstage)
-#
-#	modified:   localhost
+# Your branch is ahead of 'origin/main' by 1 commit.
+#   (use "git push" to publish your local commits)
 #
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    log/2023-10-16@08:30:01.log
-#	deleted:    log/2023-10-23@08:30:01.log
-#	deleted:    log/2023-10-30@08:30:01.log
-#	deleted:    log/2023-11-06@08:30:01.log
-#	deleted:    log/2023-11-13@08:30:01.log
-#	deleted:    log/lastb-2023-10-16@08:30:01.log
-#	deleted:    log/lastb-2023-10-23@08:30:01.log
-#	deleted:    log/lastb-2023-10-30@08:30:01.log
-#	deleted:    log/lastb-2023-11-06@08:30:01.log
-#	deleted:    log/lastb-2023-11-13@08:30:01.log
 #	modified:   log/push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	log/2024-03-11@08:30:01.log
-#	log/2024-03-18@08:30:01.log
-#	log/2024-03-25@08:30:01.log
-#	log/2024-04-01@08:30:01.log
-#	log/2024-04-08@08:30:01.log
-#	log/lastb-2024-03-11@08:30:01.log
-#	log/lastb-2024-03-18@08:30:01.log
-#	log/lastb-2024-03-25@08:30:01.log
-#	log/lastb-2024-04-01@08:30:01.log
-#	log/lastb-2024-04-08@08:30:01.log
+no changes added to commit (use "git add" and/or "git commit -a")
  >>> # On branch main
-# Changes to be committed:
-#   (use "git reset HEAD <file>..." to unstage)
-#
-#	modified:   localhost
+# Your branch is ahead of 'origin/main' by 1 commit.
+#   (use "git push" to publish your local commits)
 #
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    log/2023-10-16@08:30:01.log
-#	deleted:    log/2023-10-23@08:30:01.log
-#	deleted:    log/2023-10-30@08:30:01.log
-#	deleted:    log/2023-11-06@08:30:01.log
-#	deleted:    log/2023-11-13@08:30:01.log
-#	deleted:    log/lastb-2023-10-16@08:30:01.log
-#	deleted:    log/lastb-2023-10-23@08:30:01.log
-#	deleted:    log/lastb-2023-10-30@08:30:01.log
-#	deleted:    log/lastb-2023-11-06@08:30:01.log
-#	deleted:    log/lastb-2023-11-13@08:30:01.log
 #	modified:   log/push.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	log/2024-03-11@08:30:01.log
-#	log/2024-03-18@08:30:01.log
-#	log/2024-03-25@08:30:01.log
-#	log/2024-04-01@08:30:01.log
-#	log/2024-04-08@08:30:01.log
-#	log/lastb-2024-03-11@08:30:01.log
-#	log/lastb-2024-03-18@08:30:01.log
-#	log/lastb-2024-03-25@08:30:01.log
-#	log/lastb-2024-04-01@08:30:01.log
-#	log/lastb-2024-04-08@08:30:01.log <<< 
+no changes added to commit (use "git add" and/or "git commit -a") <<< 
  <<< nothing to commit
-warning: You ran 'git add' with neither '-A (--all)' or '--ignore-removal',
-whose behaviour will change in Git 2.0 with respect to paths you removed.
-Paths like 'log/2023-10-16@08:30:01.log' that are
-removed from your working tree are ignored with this version of Git.
-
-* 'git add --ignore-removal <pathspec>', which is the current default,
-  ignores paths you removed from your working tree.
-
-* 'git add --all <pathspec>' will let you also record the removals.
-
-Run 'git status' to check the paths you removed from your working tree.
-
 >>>>>>====================================<<<<<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
+# Your branch is ahead of 'origin/main' by 1 commit.
+#   (use "git push" to publish your local commits)
+#
 # Changes to be committed:
 #   (use "git reset HEAD <file>..." to unstage)
 #
-#	modified:   localhost
-#	new file:   log/2024-03-11@08:30:01.log
-#	new file:   log/2024-03-18@08:30:01.log
-#	new file:   log/2024-03-25@08:30:01.log
-#	new file:   log/2024-04-01@08:30:01.log
-#	new file:   log/2024-04-08@08:30:01.log
-#	new file:   log/lastb-2024-03-11@08:30:01.log
-#	new file:   log/lastb-2024-03-18@08:30:01.log
-#	new file:   log/lastb-2024-03-25@08:30:01.log
-#	new file:   log/lastb-2024-04-01@08:30:01.log
-#	new file:   log/lastb-2024-04-08@08:30:01.log
 #	modified:   log/push.log
 #
 # Changes not staged for commit:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	deleted:    log/2023-10-16@08:30:01.log
-#	deleted:    log/2023-10-23@08:30:01.log
-#	deleted:    log/2023-10-30@08:30:01.log
-#	deleted:    log/2023-11-06@08:30:01.log
-#	deleted:    log/2023-11-13@08:30:01.log
-#	deleted:    log/lastb-2023-10-16@08:30:01.log
-#	deleted:    log/lastb-2023-10-23@08:30:01.log
-#	deleted:    log/lastb-2023-10-30@08:30:01.log
-#	deleted:    log/lastb-2023-11-06@08:30:01.log
-#	deleted:    log/lastb-2023-11-13@08:30:01.log
 #	modified:   log/push.log
 #
