@@ -1,31 +1,26 @@
 Already on 'main'
+M	ip
 M	log/push.log
-Your branch is ahead of 'origin/main' by 1 commit.
-  (use "git push" to publish your local commits)
 当前分支: 
  * main
   master 
 
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
-#   (use "git push" to publish your local commits)
-#
 # Changes not staged for commit:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   ip
 #	modified:   log/push.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
  >>> # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
-#   (use "git push" to publish your local commits)
-#
 # Changes not staged for commit:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   ip
 #	modified:   log/push.log
 #
 no changes added to commit (use "git add" and/or "git commit -a") <<< 
@@ -34,12 +29,10 @@ no changes added to commit (use "git add" and/or "git commit -a") <<<
 
 >>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Your branch is ahead of 'origin/main' by 1 commit.
-#   (use "git push" to publish your local commits)
-#
 # Changes to be committed:
 #   (use "git reset HEAD <file>..." to unstage)
 #
+#	modified:   ip
 #	modified:   log/push.log
 #
 # Changes not staged for commit:
