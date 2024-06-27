@@ -153,7 +153,7 @@ function start_2(){
 #read -p "默认push当前分支，Q代表quit,其他单词代表切换分支 : " branch
 if [[ $branch == "Y" || $branch == "y" || -z $branch ]] ; then 
 
-        start_2 > /root/firewall/log/push.log 2>&1
+        start_2 > /root/old_data/firewall/log/push.log 2>&1
 	#cat /root/firewall/log/push.log
         exit
 
@@ -161,7 +161,7 @@ elif [[ $branch == "Q" || $branch == "q" ]] ; then
         #echo "你输入的是： $branch ,代表退出当前操作！" 
         exit 
 else  
-	start_1 > /root/firewall/log/push.log 2>&1
+	start_1 > /root/old_data/firewall/log/push.log 2>&1
 	#cat /root/firewall/log/push.log
     exit
 fi

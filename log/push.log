@@ -1,5 +1,7 @@
 Already on 'main'
-M	ip
+M	git.sh
+M	git_localhost.sh
+M	localhost
 M	log/push.log
 当前分支: 
  * main
@@ -7,37 +9,33 @@ M	log/push.log
 
 >>>>>> 执行 git add 之前,本地文件状态如下 <<<<<<
 # On branch main
-# Changes not staged for commit:
-#   (use "git add <file>..." to update what will be committed)
-#   (use "git checkout -- <file>..." to discard changes in working directory)
-#
-#	modified:   ip
-#	modified:   log/push.log
-#
-no changes added to commit (use "git add" and/or "git commit -a")
- >>> # On branch main
-# Changes not staged for commit:
-#   (use "git add <file>..." to update what will be committed)
-#   (use "git checkout -- <file>..." to discard changes in working directory)
-#
-#	modified:   ip
-#	modified:   log/push.log
-#
-no changes added to commit (use "git add" and/or "git commit -a") <<< 
- <<< nothing to commit
->>>>>>====================================<<<<<<
-
->>>>>> 执行 git commit 之前,本地文件状态如下 <<<<<<
-# On branch main
 # Changes to be committed:
 #   (use "git reset HEAD <file>..." to unstage)
 #
-#	modified:   ip
+#	modified:   git.sh
+#	modified:   localhost
 #	modified:   log/push.log
 #
 # Changes not staged for commit:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   git_localhost.sh
 #	modified:   log/push.log
 #
+ >>> # On branch main
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
+#
+#	modified:   git.sh
+#	modified:   localhost
+#	modified:   log/push.log
+#
+# Changes not staged for commit:
+#   (use "git add <file>..." to update what will be committed)
+#   (use "git checkout -- <file>..." to discard changes in working directory)
+#
+#	modified:   git_localhost.sh
+#	modified:   log/push.log
+# <<< 
+ <<< nothing to commit
