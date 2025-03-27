@@ -1,19 +1,23 @@
 #!/bin/bash
 
-# 显示当前目录
-echo "当前目录: $(pwd)"
+# 检查是否提供了参数
+if [ $# -eq 0 ]; then
+    echo "使用方法: $0 <配置文件名>"
+    exit 1
+fi
 
-# 提示用户输入文件名
-read -p "请输入配置文件名: " FILE_NAME
-
-# 构建完整的配置文件路径
+FILE_NAME="$1"
 CONFIG_FILE="$(pwd)/${FILE_NAME}"
+
+echo "正在检查文件: $CONFIG_FILE"
 
 # 检查配置文件是否存在
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "配置文件不存在: $CONFIG_FILE"
     exit 1
 fi
+
+echo "找到配置文件，开始处理..."
 
 # 创建临时文件用于存储新配置
 TEMP_FILE=$(mktemp)
