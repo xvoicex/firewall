@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# 获取当前脚本所在目录
-SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+# 显示当前目录
+echo "当前目录: $(pwd)"
 
 # 提示用户输入文件名
 read -p "请输入配置文件名: " FILE_NAME
 
 # 构建完整的配置文件路径
-CONFIG_FILE="${SCRIPT_DIR}/${FILE_NAME}"
+CONFIG_FILE="$(pwd)/${FILE_NAME}"
 
 # 检查配置文件是否存在
 if [ ! -f "$CONFIG_FILE" ]; then
