@@ -54,6 +54,14 @@ declare -A configs=(
     ["join_buffer_size"]="1M"
     ["character-set-server"]="utf8mb4"
     ["collation-server"]="utf8mb4_general_ci"
+    ["binlog_expire_logs_seconds"] = "604800"
+    ["max_binlog_size"] = "100M"
+    ["binlog_format"] = "ROW"
+    ["binlog_compression"] = "1"
+    ["max_binlog_files"] = "10"
+    ["binlog_ignore_db"] = "information_schema,performance_schema,mysql,sys"
+    ["binlog_cache_size"] = "4M"
+    ["sync_binlog"] = "1"
 )
 
 # 创建关联数组来跟踪已存在的配置
