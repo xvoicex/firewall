@@ -60,7 +60,7 @@ declare -A configs=(
     ["binlog_compression"]="1"
     ["binlog_ignore_db"]="information_schema,performance_schema,mysql,sys"
     ["binlog_cache_size"]="4M"
-    ["sync_binlog"]="1"
+    ["sync_binlog"]="0"
 )
 
 # 创建关联数组来跟踪已存在的配置
