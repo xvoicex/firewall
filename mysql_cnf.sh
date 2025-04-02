@@ -107,7 +107,7 @@ cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%Y%m%d%H%M%S)"
 mv "$TEMP_FILE" "$CONFIG_FILE"
 
 # 设置正确的权限
-chown mysql:mysql "$CONFIG_FILE"
+chown root:root "$CONFIG_FILE"
 chmod 644 "$CONFIG_FILE"
 
 echo "配置文件已更新，原文件已备份"
