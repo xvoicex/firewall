@@ -58,7 +58,6 @@ declare -A configs=(
     ["max_binlog_size"]="100M"
     ["binlog_format"]="ROW"
     ["binlog_compression"]="1"
-    ["max_binlog_files"]="10"
     ["binlog_ignore_db"]="information_schema,performance_schema,mysql,sys"
     ["binlog_cache_size"]="4M"
     ["sync_binlog"]="1"
