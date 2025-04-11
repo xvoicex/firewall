@@ -53,7 +53,7 @@ echo "所有缓存清理完成"
 for site in /var/www/*/; do
     if [ -d "$site" ]; then
         chown -R www-data:www-data "${site}wp-content"
-        find "${site}wp-content" -type d -exec chmod 755 {} \;
-        find "${site}wp-content" -type f -exec chmod 644 {} \;
+        find "${site}wp-content" -type d -not -path "${site}wp-content/uploads/*" -exec chmod 755 {} \;
+        find "${site}wp-content" -type f -not -path "${site}wp-content/uploads/*" -exec chmod 644 {} \;
     fi
 done
