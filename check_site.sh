@@ -116,9 +116,6 @@ for log in $nginx_logs; do
     fi
 done
 
-
-
-
 # 5. 数据库大小列表
 echo -e "\n${GREEN}5. 所有数据库大小:${NC}"
 for db in $mysql_dbs; do
@@ -132,82 +129,6 @@ for conf in $nginx_configs; do
     site=$(basename "$conf" .conf)
     domains=$(get_domain_names "$conf")
     echo -e "  - $site: ${YELLOW}$domains${NC}"
-done
-
-
-# 获取nginx配置文件中的日志路径
-get_log_paths() {
-    local conf_file=$1
-    local access_log=$(grep -i "access_log" "$conf_file" | grep -v '#' | head -1 | awk '{print $2}' | sed 's/;//')
-    local error_log=$(grep -i "error_log" "$conf_file" | grep -v '#' | head -1 | awk '{print $2}' | sed 's/;//')
-    echo "$access_log|$error_log"
-}
-
-# 检查日志文件是否存在
-check_log_exists() {
-    local log_file=$1
-    if [ -z "$log_file" ]; then
-        echo "${RED}未配置${NC}"
-    elif [ -f "$log_file" ]; then
-        local size=$(du -h "$log_file" 2>/dev/null | cut -f1)
-        echo "${GREEN}存在${NC} (${YELLOW}大小: $size${NC})"
-    else
-        echo "${RED}配置文件中指定但实际不存在${NC}"
-    fi
-}
-
-# Nginx日志路径检查
-echo -e "\n${GREEN}=== Nginx日志配置检查 ===${NC}"
-for conf in $nginx_configs; do
-    site=$(basename "$conf" .conf)
-    echo -e "\n${YELLOW}站点: $site${NC}"
-    
-    # 获取配置文件中的日志路径
-    log_paths=$(get_log_paths "$conf")
-    access_log=$(echo "$log_paths" | cut -d'|' -f1)
-    error_log=$(echo "$log_paths" | cut -d'|' -f2)
-    
-    # 显示access_log状态
-    echo -n "  访问日志 (access_log): "
-    if [ -z "$access_log" ]; then
-        echo "${RED}未配置${NC}"
-    else
-        echo -n "$access_log - "
-        check_log_exists "$access_log"
-    fi
-    
-    # 显示error_log状态
-    echo -n "  错误日志 (error_log):  "
-    if [ -z "$error_log" ]; then
-        echo "${RED}未配置${NC}"
-    else
-        echo -n "$error_log - "
-        check_log_exists "$error_log"
-    fi
-done
-
-# 检查/var/log/nginx/下的孤立日志文件
-echo -e "\n${GREEN}=== 孤立的Nginx日志文件 ===${NC}"
-for log_file in /var/log/nginx/*.{access,error}.log; do
-    if [ -f "$log_file" ]; then
-        log_name=$(basename "$log_file")
-        site_name=$(echo "$log_name" | sed 's/\.\(access\|error\)\.log$//')
-        
-        # 检查是否存在对应的nginx配置
-        found=0
-        for conf in $nginx_configs; do
-            log_paths=$(get_log_paths "$conf")
-            if echo "$log_paths" | grep -q "$log_file"; then
-                found=1
-                break
-            fi
-        done
-        
-        if [ $found -eq 0 ]; then
-            size=$(du -h "$log_file" | cut -f1)
-            echo -e "  - $log_file ${YELLOW}(大小: $size)${NC} - ${RED}无对应配置文件${NC}"
-        fi
-    fi
 done
 
 # 7. 统计信息
