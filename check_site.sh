@@ -60,6 +60,27 @@ get_domain_names() {
     fi
 }
 
+# 获取nginx配置文件中的日志路径
+get_log_paths() {
+    local conf_file=$1
+    local access_log=$(grep -i "access_log" "$conf_file" | grep -v '#' | head -1 | awk '{print $2}' | sed 's/;//')
+    local error_log=$(grep -i "error_log" "$conf_file" | grep -v '#' | head -1 | awk '{print $2}' | sed 's/;//')
+    echo "$access_log|$error_log"
+}
+
+# 检查日志文件是否存在
+check_log_exists() {
+    local log_file=$1
+    if [ -z "$log_file" ]; then
+        echo "${RED}未配置${NC}"
+    elif [ -f "$log_file" ]; then
+        local size=$(du -h "$log_file" 2>/dev/null | cut -f1)
+        echo "${GREEN}存在${NC} (${YELLOW}大小: $size${NC})"
+    else
+        echo "${RED}配置文件中指定但实际不存在${NC}"
+    fi
+}
+
 # 主程序开始
 echo "正在进行站点配置检查..."
 mysql_login
@@ -69,66 +90,63 @@ echo -e "\n正在收集数据..."
 mysql_dbs=$(get_mysql_dbs)
 www_dirs=$(ls /var/www 2>/dev/null)
 nginx_configs=$(ls /etc/nginx/sites-enabled/*.conf 2>/dev/null)
-nginx_logs=$(ls /var/log/nginx/*.{access,error}.log 2>/dev/null | sed 's/.*\///g' | sed 's/\.\(access\|error\)\.log$//' | sort -u)
 
 echo -e "\n${GREEN}=== 分析结果 ===${NC}"
 
-# 1. 检查存在数据库但没有对应www目录的站点
-echo -e "\n${GREEN}1. 存在数据库但没有对应www目录的站点:${NC}"
-for db in $mysql_dbs; do
-    found=0
-    for dir in $www_dirs; do
-        if [[ "$dir" == "$db"* ]]; then
-            found=1
-            break
+# [前面的代码保持不变，直到"nginx日志检查"部分]
+
+# Nginx日志路径检查
+echo -e "\n${GREEN}=== Nginx日志配置检查 ===${NC}"
+for conf in $nginx_configs; do
+    site=$(basename "$conf" .conf)
+    echo -e "\n${YELLOW}站点: $site${NC}"
+    
+    # 获取配置文件中的日志路径
+    log_paths=$(get_log_paths "$conf")
+    access_log=$(echo "$log_paths" | cut -d'|' -f1)
+    error_log=$(echo "$log_paths" | cut -d'|' -f2)
+    
+    # 显示access_log状态
+    echo -n "  访问日志 (access_log): "
+    if [ -z "$access_log" ]; then
+        echo "${RED}未配置${NC}"
+    else
+        echo -n "$access_log - "
+        check_log_exists "$access_log"
+    fi
+    
+    # 显示error_log状态
+    echo -n "  错误日志 (error_log):  "
+    if [ -z "$error_log" ]; then
+        echo "${RED}未配置${NC}"
+    else
+        echo -n "$error_log - "
+        check_log_exists "$error_log"
+    fi
+done
+
+# 检查/var/log/nginx/下的孤立日志文件
+echo -e "\n${GREEN}=== 孤立的Nginx日志文件 ===${NC}"
+for log_file in /var/log/nginx/*.{access,error}.log; do
+    if [ -f "$log_file" ]; then
+        log_name=$(basename "$log_file")
+        site_name=$(echo "$log_name" | sed 's/\.\(access\|error\)\.log$//')
+        
+        # 检查是否存在对应的nginx配置
+        found=0
+        for conf in $nginx_configs; do
+            log_paths=$(get_log_paths "$conf")
+            if echo "$log_paths" | grep -q "$log_file"; then
+                found=1
+                break
+            fi
+        done
+        
+        if [ $found -eq 0 ]; then
+            size=$(du -h "$log_file" | cut -f1)
+            echo -e "  - $log_file ${YELLOW}(大小: $size)${NC} - ${RED}无对应配置文件${NC}"
         fi
-    done
-    if [ $found -eq 0 ]; then
-        size=$(get_db_size "$db")
-        echo -e "  - $db ${YELLOW}(大小: ${size}MB)${NC}"
     fi
-done
-
-# 2. 检查存在nginx配置但没有对应数据库的站点
-echo -e "\n${GREEN}2. 存在nginx配置但没有对应数据库的站点:${NC}"
-for conf in $nginx_configs; do
-    site=$(basename "$conf" .conf)
-    if ! echo "$mysql_dbs" | grep -q "^${site}$"; then
-        domains=$(get_domain_names "$conf")
-        echo -e "  - $site ${YELLOW}(域名: $domains)${NC}"
-    fi
-done
-
-# 3. 检查被重命名的www目录
-echo -e "\n${GREEN}3. 被重命名的www目录:${NC}"
-for dir in $www_dirs; do
-    if [[ "$dir" =~ ^([^已备旧迁]+)(已|备份|旧|迁移).* ]]; then
-        original_name="${BASH_REMATCH[1]}"
-        echo "  - $dir (原站点名: $original_name)"
-    fi
-done
-
-# 4. 检查存在日志但站点可能已不存在的情况
-echo -e "\n${GREEN}4. 存在日志但站点可能已不存在:${NC}"
-for log in $nginx_logs; do
-    if ! echo "$nginx_configs" | grep -q "/${log}.conf" && ! echo "$mysql_dbs" | grep -q "^${log}$"; then
-        echo "  - $log"
-    fi
-done
-
-# 5. 数据库大小列表
-echo -e "\n${GREEN}5. 所有数据库大小:${NC}"
-for db in $mysql_dbs; do
-    size=$(get_db_size "$db")
-    echo -e "  - $db: ${YELLOW}${size}MB${NC}"
-done
-
-# 6. Nginx配置域名列表
-echo -e "\n${GREEN}6. Nginx站点域名列表:${NC}"
-for conf in $nginx_configs; do
-    site=$(basename "$conf" .conf)
-    domains=$(get_domain_names "$conf")
-    echo -e "  - $site: ${YELLOW}$domains${NC}"
 done
 
 # 7. 统计信息
