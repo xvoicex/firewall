@@ -28,11 +28,40 @@ install_packages() {
 
 # 配置UFW
 configure_ufw() {
-    ufw --force enable
-    # 获取所有已开放的端口
-    netstat -tlnp | grep -E ":(80|443|22|21|3306)" | awk '{print $4}' | cut -d':' -f2 | while read port; do
-        ufw allow $port
+    # 检查并安装ss命令（如果需要）
+    if ! command -v ss &> /dev/null; then
+        if [ -f /etc/debian_version ]; then
+            apt install -y iproute2
+        elif [ -f /etc/redhat-release ]; then
+            yum install -y iproute
+        fi
+    fi
+
+    # 获取所有LISTEN状态的TCP端口
+    echo "正在获取当前系统开放的端口..."
+    local open_ports=$(ss -ltpn | awk 'NR>1 {gsub(/.*:/, "", $4); print $4}' | sort -nu)
+
+    echo "检测到以下开放端口："
+    for port in $open_ports; do
+        echo "端口: $port"
     done
+
+    # 确认是否配置这些端口
+    read -p "是否要为这些端口配置UFW规则？(y/n): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        ufw --force enable
+        for port in $open_ports; do
+            echo "允许端口 $port"
+            ufw allow $port/tcp
+        done
+        echo -e "${GREEN}UFW规则配置完成${NC}"
+    else
+        echo "跳过UFW端口配置"
+    fi
+
+    # 显示UFW状态
+    echo "当前UFW状态："
+    ufw status numbered
 }
 
 # 创建fail2ban配置文件
