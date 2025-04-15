@@ -171,7 +171,8 @@ EOF
 bantime = 3600
 findtime = 600
 maxretry = 5
-banaction = nftables-multiport
+banaction = ufw-comment
+banaction_allports = ufw-comment
 
 [nginx-cc]
 enabled = true
