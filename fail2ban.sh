@@ -286,7 +286,7 @@ add_all_sites() {
     if [ -z "$sites" ]; then
         echo -e "${RED}未找到任何nginx访问日志文件${NC}"
         return
-    fi  # 这里改成 fi，之前是 }
+    fi
 
     echo "找到以下站点："
     for site in $sites; do
@@ -312,7 +312,7 @@ list_available_sites() {
     if [ -z "$all_sites" ]; then
         echo -e "${RED}未找到任何nginx访问日志文件${NC}"
         return
-    }
+    fi
 
     echo "可追加的站点："
     local i=1
