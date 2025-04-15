@@ -263,44 +263,32 @@ update_logpath() {
     local jail_local="/etc/fail2ban/jail.local"
     
     awk -v site="$site" '
-    /\[nginx-.*\]/ { in_section=1 }
-    /^\[.*\]/ && !/\[nginx-.*\]/ { in_section=0 }
+    /\[nginx-.*\]/ { 
+        in_section=1
+        print $0
+        next
+    }
+    /^\[.*\]/ { 
+        in_section=0
+        print $0
+        next
+    }
+    in_section && /^logpath\s*=\s*$/ {
+        print "logpath = /var/log/nginx/" site ".access.log"
+        print "         /var/log/nginx/" site ".error.log"
+        next
+    }
     {
-        if (in_section && $0 ~ /^logpath =\s*$/) {
-            print "logpath = /var/log/nginx/" site ".access.log"
-            print "         /var/log/nginx/" site ".error.log"
-        } else {
-            print $0
-        }
-    }' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
-}
-
-# 一键添加所有站点
-add_all_sites() {
-    local log_dir="/var/log/nginx"
-    # 使用find命令查找所有access日志，并存储到数组中
-    readarray -t sites < <(find "$log_dir" -name "*.access.log" | sed 's|.*/||' | sed 's|\.access\.log$||' | sort -u)
-    
-    if [ ${#sites[@]} -eq 0 ]; then
-        echo -e "${RED}未找到任何nginx访问日志文件${NC}"
-        return
-    fi
-
-    echo "找到以下站点："
-    for site in "${sites[@]}"; do
-        echo "$site"
-        update_logpath "$site"
-    done
-    
-    systemctl restart fail2ban
-    echo -e "${GREEN}已添加所有站点${NC}"
+        print $0
+    }
+    ' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
 }
 
 # 列出可追加的站点
 list_available_sites() {
     local log_dir="/var/log/nginx"
     # 获取当前配置中的站点
-    readarray -t current_sites < <(grep -r "logpath =" /etc/fail2ban/jail.local | grep "access.log" | sed 's|.*/||' | sed 's|\.access\.log.*||' | sort -u)
+    readarray -t current_sites < <(grep -r "^logpath = /var/log/nginx/" /etc/fail2ban/jail.local | sed 's|.*/nginx/||' | sed 's|\.access\.log.*||' | sort -u)
     
     # 获取所有可用的站点
     readarray -t all_sites < <(find "$log_dir" -name "*.access.log" | sed 's|.*/||' | sed 's|\.access\.log$||' | sort -u)
@@ -312,6 +300,7 @@ list_available_sites() {
 
     echo "可追加的站点："
     local i=1
+    local found=0
     for site in "${all_sites[@]}"; do
         # 检查站点是否已存在于配置中
         local exists=0
@@ -325,8 +314,13 @@ list_available_sites() {
         if [ $exists -eq 0 ]; then
             echo "$i.$site"
             ((i++))
+            found=1
         fi
     done
+
+    if [ $found -eq 0 ]; then
+        echo -e "${RED}没有可追加的站点${NC}"
+    fi
 }
 
 # 追加站点
@@ -334,39 +328,23 @@ append_site() {
     # 首先列出可用的站点
     list_available_sites
     
-    echo -e "\n请从上面的列表中选择要追加的站点名称"
-    read -p "站点名称: " site
-    
-    if [ -f "/var/log/nginx/$site.access.log" ]; then
-        if grep -q "/var/log/nginx/$site.access.log" /etc/fail2ban/jail.local; then
-            echo -e "${RED}该站点已经存在于配置中${NC}"
-            return
-        fi
+    if ! grep -q "^logpath = /var/log/nginx/" /etc/fail2ban/jail.local; then
+        echo -e "\n请从上面的列表中选择要追加的站点名称"
+        read -p "站点名称: " site
         
-        update_logpath "$site"
-        systemctl restart fail2ban
-        echo -e "${GREEN}已追加站点 $site${NC}"
-    else
-        echo -e "${RED}站点日志文件不存在: /var/log/nginx/$site.access.log${NC}"
+        if [ -f "/var/log/nginx/$site.access.log" ]; then
+            if grep -q "/var/log/nginx/$site.access.log" /etc/fail2ban/jail.local; then
+                echo -e "${RED}该站点已经存在于配置中${NC}"
+                return
+            fi
+            
+            update_logpath "$site"
+            systemctl restart fail2ban
+            echo -e "${GREEN}已追加站点 $site${NC}"
+        else
+            echo -e "${RED}站点日志文件不存在: /var/log/nginx/$site.access.log${NC}"
+        fi
     fi
-}
-
-# 更新jail.local中的logpath
-update_logpath() {
-    local site=$1
-    local jail_local="/etc/fail2ban/jail.local"
-    
-    awk -v site="$site" '
-    /\[nginx-.*\]/ { in_section=1 }
-    /^\[.*\]/ && !/\[nginx-.*\]/ { in_section=0 }
-    {
-        if (in_section && $0 ~ /^logpath =\s*$/) {
-            print "logpath = /var/log/nginx/" site ".access.log"
-            print "         /var/log/nginx/" site ".error.log"
-        } else {
-            print $0
-        }
-    }' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
 }
 
 # 列出封禁的IP
