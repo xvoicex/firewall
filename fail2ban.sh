@@ -6,587 +6,521 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 # 检查是否为root用户
-if [ "$EUID" -ne 0 ]; then
+if [ "$EUID" -ne 0 ]; then 
     echo -e "${RED}请使用root权限运行此脚本${NC}"
     exit 1
 fi
 
-# 检查命令是否已安装
-check_command() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# 检测系统类型并安装软件
 install_packages() {
+    # 检查是否已安装所需软件
     local packages_to_install=()
     
-    # 检查每个必需的命令
-    if ! check_command fail2ban-client; then
+    # 检查fail2ban
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
         packages_to_install+=("fail2ban")
     fi
     
-    if ! check_command ufw; then
+    # 检查ufw
+    if ! command -v ufw >/dev/null 2>&1; then
         packages_to_install+=("ufw")
     fi
     
-    if ! check_command jq; then
+    # 检查jq
+    if ! command -v jq >/dev/null 2>&1; then
         packages_to_install+=("jq")
     fi
     
-    # 如果所有命令都已安装，则退出
+    # 如果所有软件都已安装，直接返回
     if [ ${#packages_to_install[@]} -eq 0 ]; then
-        echo -e "${GREEN}所有必需的软件包都已安装${NC}"
+        echo -e "${GREEN}所有必需的软件包已安装${NC}"
         return 0
     fi
     
-    echo -e "需要安装以下软件包：${packages_to_install[*]}"
-    read -p "是否继续安装？(y/n): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        echo "取消安装"
-        return 1
-    fi
-
-    # 根据系统类型安装软件包
-    if [ -f /etc/debian_version ]; then
-        echo "检测到 Debian/Ubuntu 系统"
-        apt update
-        for package in "${packages_to_install[@]}"; do
-            echo "正在安装 $package..."
-            apt install -y "$package"
-            if [ $? -ne 0 ]; then
-                echo -e "${RED}安装 $package 失败${NC}"
-                return 1
-            fi
-        done
-    elif [ -f /etc/redhat-release ]; then
-        echo "检测到 RHEL/CentOS 系统"
-        if ! check_command epel-release && [[ " ${packages_to_install[@]} " =~ " fail2ban " ]]; then
-            echo "正在安装 EPEL 仓库..."
-            yum install -y epel-release
-        fi
-        yum update
-        for package in "${packages_to_install[@]}"; do
-            echo "正在安装 $package..."
-            yum install -y "$package"
-            if [ $? -ne 0 ]; then
-                echo -e "${RED}安装 $package 失败${NC}"
-                return 1
-            fi
-        done
+    # 根据系统类型安装缺失的软件包
+    if command -v apt-get >/dev/null 2>&1; then
+        echo -e "${GREEN}使用apt安装缺失的软件包: ${packages_to_install[*]}${NC}"
+        apt-get update
+        apt-get install -y "${packages_to_install[@]}"
+    elif command -v yum >/dev/null 2>&1; then
+        echo -e "${GREEN}使用yum安装缺失的软件包: ${packages_to_install[*]}${NC}"
+        yum install -y epel-release
+        yum install -y "${packages_to_install[@]}"
     else
         echo -e "${RED}不支持的系统类型${NC}"
-        return 1
+        exit 1
     fi
-
-    echo -e "${GREEN}所有软件包安装完成${NC}"
-    return 0
 }
 
 # 配置UFW
 configure_ufw() {
-    # 检查并安装ss命令（如果需要）
-    if ! command -v ss &> /dev/null; then
-        if [ -f /etc/debian_version ]; then
-            apt install -y iproute2
-        elif [ -f /etc/redhat-release ]; then
-            yum install -y iproute
+    # 检查UFW是否已安装
+    if ! command -v ufw >/dev/null 2>&1; then
+        echo -e "${RED}UFW未安装，请先安装UFW${NC}"
+        return 1
+	fi
+    
+    
+    # 重置UFW规则
+    echo -e "${GREEN}重置UFW规则...${NC}"
+    ufw --force reset
+    
+    # 启用UFW
+    echo -e "${GREEN}启用UFW...${NC}"
+    ufw --force enable
+    
+    # 默认规则：拒绝入站，允许出站
+    ufw default deny incoming
+    ufw default allow outgoing
+    
+    # 允许SSH（如果正在使用）
+    if netstat -tuln | grep ":22 " >/dev/null; then
+        ufw allow 22/tcp comment 'SSH'
+    fi
+    
+    # 获取所有非本地监听端口
+    echo -e "${GREEN}配置防火墙规则...${NC}"
+    PORTS=$(ss -tulpn | grep LISTEN | grep -v "127.0.0.1" | grep -v "::1" | awk '{print $5}' | awk -F: '{print $NF}' | sort -u)
+    
+    # 为每个外部端口添加规则
+    for PORT in $PORTS; do
+        # 检查端口是否为数字
+        if [[ $PORT =~ ^[0-9]+$ ]]; then
+            # 检查是TCP还是UDP
+            if ss -tulpn | grep ":$PORT " | grep "tcp" >/dev/null; then
+                ufw allow $PORT/tcp comment "Port $PORT TCP"
+            fi
+            if ss -tulpn | grep ":$PORT " | grep "udp" >/dev/null; then
+                ufw allow $PORT/udp comment "Port $PORT UDP"
+            fi
         fi
-    fi
-
-    # 获取所有LISTEN状态的TCP端口
-    echo "正在获取当前系统开放的端口..."
-    local open_ports=$(ss -ltpn | awk 'NR>1 {gsub(/.*:/, "", $4); print $4}' | sort -nu)
-
-    echo "检测到以下开放端口："
-    for port in $open_ports; do
-        echo "端口: $port"
     done
-
-    # 确认是否配置这些端口
-    read -p "是否要为这些端口配置UFW规则？(y/n): " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        ufw --force enable
-        for port in $open_ports; do
-            echo "允许端口 $port"
-            ufw allow $port/tcp
-        done
-        echo -e "${GREEN}UFW规则配置完成${NC}"
-    else
-        echo "跳过UFW端口配置"
-    fi
-
-    # 显示UFW状态
-    echo "当前UFW状态："
+    
+    # 显示当前规则
+    echo -e "${GREEN}当前UFW规则:${NC}"
     ufw status numbered
 }
 
-# 创建fail2ban配置文件
-create_fail2ban_configs() {
-    # 创建filter配置
-    local filter_dir="/etc/fail2ban/filter.d"
-    local filters=(
-        "nginx-cc"
-        "nginx-scan"
-        "nginx-req-limit"
-        "nginx-sql"
-        "nginx-xss"
-        "nginx-login"
-        "nginx-crawler"
-        "nginx-cca"
-        "nginx-scana"
-    )
-
-    # 创建各个filter文件
-    for filter in "${filters[@]}"; do
-        case $filter in
-            "nginx-cc")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+# 创建fail2ban过滤器配置
+create_filters() {
+    # nginx-cc.conf
+    cat > /etc/fail2ban/filter.d/nginx-cc.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* "(GET|POST|HEAD).*HTTP.*" (?:404|444|403|400|429) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-scan")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-scan.conf 修改这里，增加%的转义
+    cat > /etc/fail2ban/filter.d/nginx-scan.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* ".*(?:\.\.\/|\/etc\/|\/usr\/|_\/|\.\.\.\/|%%00|\\x00).*" (?:404|403|400) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-req-limit")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-req-limit.conf
+    cat > /etc/fail2ban/filter.d/nginx-req-limit.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* "(GET|POST|HEAD).*HTTP.*" (?:404|444|403|400|429|502) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-sql")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-sql.conf
+    cat > /etc/fail2ban/filter.d/nginx-sql.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* ".*(?:union.*select|concat.*\(|information_schema|load_file).*" (?:404|403|400) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-xss")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-xss.conf
+    cat > /etc/fail2ban/filter.d/nginx-xss.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* ".*(?:script>|<script|alert\().*" (?:404|403|400) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-login")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-login.conf
+    cat > /etc/fail2ban/filter.d/nginx-login.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* "(POST).*/(?:login|admin|wp-login).*" (?:404|403|400|401) .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-crawler")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-crawler.conf
+    cat > /etc/fail2ban/filter.d/nginx-crawler.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> .* "(?:Wget|curl|python-requests|Go-http-client|zgrab|Nmap|masscan).*" .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-cca")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-cca.conf
+    cat > /etc/fail2ban/filter.d/nginx-cca.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> -.*- .*HTTP/1.* .* .*$
 ignoreregex =
 EOF
-                ;;
-            "nginx-scana")
-                cat > "$filter_dir/$filter.conf" << 'EOF'
+
+    # nginx-scana.conf
+    cat > /etc/fail2ban/filter.d/nginx-scana.conf << 'EOF'
 [Definition]
 failregex = ^<HOST> -.* /var/www/* HTTP/1\..
 ignoreregex =
 EOF
-                ;;
-        esac
-    done
 
-    # 创建ufw-comment action配置
-    cat > "/etc/fail2ban/action.d/ufw-comment.conf" << 'EOF'
+    # ufw-comment.conf
+    cat > /etc/fail2ban/action.d/ufw-comment.conf << 'EOF'
 [Definition]
 actionstart = 
 actionstop = 
 actioncheck = 
 
-actionban = ufw insert 1 deny from <ip> to any port <port> proto <protocol> comment 'fail2ban: <name> - banned on <datetime>'
-            /usr/local/bin/fail2ban-notify.sh <ip> <name> "封禁"
-
-actionunban = ufw delete deny from <ip> to any port <port> proto <protocol>
-              /usr/local/bin/fail2ban-notify.sh <ip> <name> "解封"
+actionban = ufw insert 1 deny from <ip> to any port <port> proto <protocol> comment 'fail2ban: <name> - banned on <datetime>' && /usr/local/bin/fail2ban-notify.sh <ip> <name> "封禁"
+            
+actionunban = ufw delete deny from <ip> to any port <port> proto <protocol> && /usr/local/bin/fail2ban-notify.sh <ip> <name> "解封" 
 
 [Init]
 EOF
+}
 
-    # 创建jail.local配置
-    cat > "/etc/fail2ban/jail.local" << 'EOF'
+# 创建基础jail.local配置
+create_base_jail() {
+    cat > /etc/fail2ban/jail.local << 'EOF'
 [DEFAULT]
 bantime = 3600
 findtime = 600
-maxretry = 5
+maxretry = 15
 banaction = ufw-comment
 banaction_allports = ufw-comment
 
-[nginx-cc]
-enabled = false
-port = http,https
-filter = nginx-cc
-logpath = 
-maxretry = 300
-findtime = 60
-
-[nginx-scan]
-enabled = false
-port = http,https
-filter = nginx-scan
-logpath = 
-maxretry = 5
-findtime = 300
-
-[nginx-req-limit]
-enabled = false
-port = http,https
-filter = nginx-req-limit
-logpath = 
-maxretry = 200
-findtime = 60
-
-[nginx-sql]
-enabled = false
-port = http,https
-filter = nginx-sql
-logpath = 
-maxretry = 2
-findtime = 600
-
-[nginx-xss]
-enabled = false
-port = http,https
-filter = nginx-xss
-logpath = 
-maxretry = 2
-findtime = 600
-
-[nginx-login]
-enabled = false
-port = http,https
-filter = nginx-login
-logpath = 
-maxretry = 5
-findtime = 300
-
-[nginx-crawler]
-enabled = false
-port = http,https
-filter = nginx-crawler
-logpath = 
-maxretry = 3
-findtime = 60
-
-[nginx-cca]
-enabled = false
-port = http,https
-filter = nginx-cca
-logpath = 
-maxretry = 5
-findtime = 300
-
-[nginx-scana]
-enabled = false
-port = http,https
-filter = nginx-scana
-logpath = 
-maxretry = 5
-findtime = 300
-EOF
-
-    # 设置配置文件权限
-    chmod 644 /etc/fail2ban/jail.local
-
-    # 创建fail2ban配置目录（如果不存在）
-    mkdir -p /etc/fail2ban/filter.d
-    mkdir -p /etc/fail2ban/action.d
-
-    echo -e "${GREEN}已创建所有必要的fail2ban配置文件${NC}"
-}
-
-
-# 更新jail.local中的logpath和enabled状态
-update_logpath() {
-    local site=$1
-    local jail_local="/etc/fail2ban/jail.local"
-    
-    # 检查是否有日志文件
-    if [ -f "/var/log/nginx/$site.access.log" ]; then
-        # 更新所有nginx相关规则
-        awk '
-        /\[nginx-.*\]/ { 
-            in_section=1
-            print $0
-            next
-        }
-        /^\[.*\]/ { 
-            in_section=0
-            print $0
-            next
-        }
-        in_section && /^enabled\s*=\s*false/ {
-            print "enabled = true"
-            next
-        }
-        in_section && /^logpath\s*=\s*$/ {
-            print "logpath = /var/log/nginx/'"$site"'.access.log"
-            print "         /var/log/nginx/'"$site"'.error.log"
-            next
-        }
-        {
-            print $0
-        }
-        ' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
-    fi
-}
-
-
-# 一键添加所有站点
-add_all_sites() {
-    local log_dir="/var/log/nginx"
-    # 获取所有access日志
-    local access_logs=$(find "$log_dir" -name "*.access.log" | sort)
-    
-    if [ -z "$access_logs" ]; then
-        echo -e "${RED}未找到任何nginx访问日志文件${NC}"
-        return
-    fi
-
-    echo "找到以下日志文件："
-    echo "$access_logs" | tr ' ' '\n'
-
-    # 为每个站点创建独立的jail配置
-    while IFS= read -r access_log; do
-        local site=$(basename "$access_log" .access.log)
-        local error_log="${access_log/access.log/error.log}"
-        
-        if [ -f "$error_log" ]; then
-            # 为每个规则类型创建独立的jail
-            local jail_types=("cc" "scan" "req-limit" "sql" "xss" "login" "crawler" "nginx-cca" "nginx-scana")
-            
-            for type in "${jail_types[@]}"; do
-                cat >> "/etc/fail2ban/jail.local" << EOF
-
-[nginx-${type}-${site}]
+#sshd-START
+[sshd]
 enabled = true
-port = http,https
-filter = nginx-${type}
-logpath = ${access_log}
-         ${error_log}
-maxretry = $(get_maxretry "$type")
-findtime = $(get_findtime "$type")
+filter = sshd
+port = 22
+maxretry = 5
+findtime = 300
+bantime = 86400
+action = %(action_mwl)s
+logpath = /var/log/auth.log
+#sshd-END
 EOF
-            done
-            echo -e "${GREEN}已添加站点 $site 的配置${NC}"
-        fi
-    done <<< "$access_logs"
-    
-    systemctl restart fail2ban
-    echo -e "${GREEN}已添加所有站点日志${NC}"
 }
 
-# 获取不同规则类型的maxretry值
-get_maxretry() {
-    local type=$1
-    case $type in
-        "cc") echo "300" ;;
-        "scan") echo "5" ;;
-        "req-limit") echo "200" ;;
-        "sql") echo "2" ;;
-        "xss") echo "2" ;;
-        "login") echo "5" ;;
-        "crawler") echo "3" ;;
-        *) echo "5" ;;
-    esac
-}
-
-# 获取不同规则类型的findtime值
-get_findtime() {
-    local type=$1
-    case $type in
-        "cc") echo "60" ;;
-        "scan") echo "300" ;;
-        "req-limit") echo "60" ;;
-        "sql") echo "600" ;;
-        "xss") echo "600" ;;
-        "login") echo "300" ;;
-        "crawler") echo "60" ;;
-        *) echo "300" ;;
-    esac
-}
-
-# 追加站点
-append_site() {
-    local log_dir="/var/log/nginx"
-    # 首先列出可用的站点
-    list_available_sites
+# 添加站点配置
+add_site_config() {
+    local site_prefix=$1
+    local access_log="/var/log/nginx/${site_prefix}.access.log"
+    local error_log="/var/log/nginx/${site_prefix}.error.log"
     
-    echo -e "\n请输入要追加的站点名称（不包含.access.log或.error.log后缀）："
-    read -p "站点名称: " site
-    
-    local access_log="/var/log/nginx/$site.access.log"
-    local error_log="/var/log/nginx/$site.error.log"
-    
-    if [ ! -f "$access_log" ]; then
-        echo -e "${RED}访问日志文件不存在: $access_log${NC}"
-        return
-    fi
-    
-    if [ ! -f "$error_log" ]; then
-        echo -e "${RED}错误日志文件不存在: $error_log${NC}"
-        return
-    fi
-
-    # 检查是否已存在
-    if grep -q "nginx-.*-${site}]" /etc/fail2ban/jail.local; then
-        echo -e "${RED}该站点已经存在于配置中${NC}"
-        return
-    fi
-
-    # 为站点创建所有规则类型的jail
-    local jail_types=("cc" "scan" "req-limit" "sql" "xss" "login" "crawler")
-    
-    for type in "${jail_types[@]}"; do
-        cat >> "/etc/fail2ban/jail.local" << EOF
-
-[nginx-${type}-${site}]
-enabled = true
-port = http,https
-filter = nginx-${type}
-logpath = ${access_log}
-         ${error_log}
-maxretry = $(get_maxretry "$type")
-findtime = $(get_findtime "$type")
-EOF
-    done
-    
-    systemctl restart fail2ban
-    echo -e "${GREEN}已追加站点 $site${NC}"
-}
-
-# 删除站点
-remove_site() {
-    if ! list_configured_sites; then
-        return
-    fi
-    
-    echo -e "\n请输入要删除的站点名称（不包含.access.log或.error.log后缀）："
-    read -p "站点名称: " site
-    
-    # 检查站点是否在配置中
-    if ! grep -q "nginx-.*-${site}]" /etc/fail2ban/jail.local; then
-        echo -e "${RED}该站点不在配置中${NC}"
-        return
-    fi
-
-    # 删除该站点的所有jail配置
-    sed -i "/\[nginx-.*-${site}\]/,/findtime = [0-9]*/d" /etc/fail2ban/jail.local
-    
-    # 清理可能的空行
-    sed -i '/^$/N;/^\n$/D' /etc/fail2ban/jail.local
-    
-    systemctl restart fail2ban
-    echo -e "${GREEN}已删除站点 $site${NC}"
-}
-
-# 列出已配置的站点
-list_configured_sites() {
-    echo "当前已配置的站点："
-    
-    # 获取所有配置的站点名称
-    local sites=$(grep "\[nginx-.*-.*\]" /etc/fail2ban/jail.local | sed 's/\[nginx-[^-]*-\(.*\)\]/\1/' | sort -u)
-    
-    if [ -z "$sites" ]; then
-        echo -e "${RED}没有找到已配置的站点${NC}"
+    if [ ! -f "$access_log" ] && [ ! -f "$error_log" ]; then
+        echo -e "${RED}找不到站点 ${site_prefix} 的日志文件${NC}"
         return 1
     fi
 
-    local i=1
-    while IFS= read -r site; do
-        echo "$i.$site"
-        ((i++))
-    done <<< "$sites"
-    
-    return 0
+    echo -e "\n#${site_prefix}_start" >> /etc/fail2ban/jail.local
+    cat >> /etc/fail2ban/jail.local << EOF
+
+[nginx-cc-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-cc
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-scan-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-scan
+logpath = $access_log
+maxretry = 60
+findtime = 300
+
+[nginx-req-limit-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-req-limit
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-sql-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-sql
+logpath = $access_log
+maxretry = 20
+findtime = 600
+
+[nginx-xss-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-xss
+logpath = $access_log
+maxretry = 20
+findtime = 60
+
+[nginx-login-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-login
+logpath = $access_log
+maxretry = 10
+findtime = 10
+
+[nginx-crawler-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-crawler
+logpath = $access_log
+maxretry = 3
+findtime = 60
+
+[nginx-cca-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-cca
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-scana-${site_prefix}]
+enabled = true
+port = 80,443
+filter = nginx-scana
+logpath = $access_log
+maxretry = 60
+findtime = 60
+EOF
+    echo "#${site_prefix}_end" >> /etc/fail2ban/jail.local
 }
 
+# 添加所有站点
+add_all_sites() {
+    create_base_jail
+    for log_file in /var/log/nginx/*.access.log; do
+        if [ -f "$log_file" ]; then
+            site_prefix=$(basename "$log_file" .access.log)
+            add_site_config "$site_prefix"
+        fi
+    done
+    systemctl restart fail2ban
+}
 
+# 删除站点配置
+remove_site() {
+    local site_prefix=$1
+    local temp_file=$(mktemp)
+    sed "/#${site_prefix}_start/,/#${site_prefix}_end/d" /etc/fail2ban/jail.local > "$temp_file"
+    mv "$temp_file" /etc/fail2ban/jail.local
+    systemctl restart fail2ban
+}
 
 # 列出封禁的IP
 list_banned_ips() {
-    echo "已封禁的IP列表："
-    fail2ban-client status | grep "Jail list" | sed 's/^.*://g' | tr ',' '\n' | while read jail; do
+    fail2ban-client status | grep "Jail list:" | sed "s/^.*:[ ]*//g" | tr ',' '\n' | while read -r jail; do
         if [ ! -z "$jail" ]; then
-            echo -e "\n${GREEN}[$jail]${NC}"
-            fail2ban-client status $jail | grep "Banned IP list" | sed 's/^.*://g'
+            echo -e "${GREEN}Jail: $jail${NC}"
+            fail2ban-client status "$jail" | grep "Banned IP list:"
         fi
     done
 }
 
 # 解除IP封禁
 unban_ip() {
-    read -p "请输入要解封的IP地址：" ip
-    fail2ban-client unban $ip
-    echo -e "${GREEN}已解封IP: $ip${NC}"
+    local ip=$1
+    fail2ban-client unban "$ip"
+    echo -e "${GREEN}已解除IP ${ip} 的封禁${NC}"
 }
 
-# 主菜单
-main_menu() {
-    while true; do
-        echo -e "\n${GREEN}Fail2ban管理脚本${NC}"
-        echo "1. 安装和配置系统"
-        echo "2. 一键添加所有站点"
-        echo "3. 追加站点"
-        echo "4. 删除站点"
-        echo "5. 列出已配置站点"
-        echo "6. 列出封禁的IP"
-        echo "7. 解除IP封禁"
-        echo "8. 退出"
-        
-        read -p "请选择操作 (1-8): " choice
-        
-        case $choice in
-            1)
-                install_packages
-                configure_ufw
-                create_fail2ban_configs
-                ;;
-            2)
-                add_all_sites
-                ;;
-            3)
-                list_available_sites
-                append_site
-                ;;
-            4)
-                remove_site
-                ;;
-            5)
-                list_configured_sites
-                ;;
-            6)
-                list_banned_ips
-                ;;
-            7)
-                unban_ip
-                ;;
-            8)
-                exit 0
-                ;;
-            *)
-                echo -e "${RED}无效的选择${NC}"
-                ;;
-        esac
-    done
+# 列出已配置的站点
+list_configured_sites() {
+    echo -e "${GREEN}已配置的站点:${NC}"
+    grep -n "#.*_start" /etc/fail2ban/jail.local | cut -d'#' -f2 | cut -d'_' -f1
 }
 
-main_menu
+# 添加默认日志监控
+add_default_logs() {
+    local access_log="/var/log/nginx/access.log"
+    local error_log="/var/log/nginx/error.log"
+    
+    # 检查日志文件是否存在
+    if [ ! -f "$access_log" ]; then
+        echo -e "${RED}默认访问日志文件 $access_log 不存在${NC}"
+        return 1
+    fi
+
+    # 检查是否已经在监控中
+    if grep -q "^logpath = $access_log" /etc/fail2ban/jail.local; then
+        echo -e "${RED}默认日志已在监控列表中${NC}"
+        return 1
+    fi
+
+    echo -e "\n#default_logs_start" >> /etc/fail2ban/jail.local
+    cat >> /etc/fail2ban/jail.local << EOF
+
+[nginx-cc-default]
+enabled = true
+port = 80,443
+filter = nginx-cc
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-scan-default]
+enabled = true
+port = 80,443
+filter = nginx-scan
+logpath = $access_log
+maxretry = 60
+findtime = 300
+
+[nginx-req-limit-default]
+enabled = true
+port = 80,443
+filter = nginx-req-limit
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-sql-default]
+enabled = true
+port = 80,443
+filter = nginx-sql
+logpath = $access_log
+maxretry = 20
+findtime = 600
+
+[nginx-xss-default]
+enabled = true
+port = 80,443
+filter = nginx-xss
+logpath = $access_log
+maxretry = 20
+findtime = 60
+
+[nginx-login-default]
+enabled = true
+port = 80,443
+filter = nginx-login
+logpath = $access_log
+maxretry = 10
+findtime = 10
+
+[nginx-crawler-default]
+enabled = true
+port = 80,443
+filter = nginx-crawler
+logpath = $access_log
+maxretry = 3
+findtime = 60
+
+[nginx-cca-default]
+enabled = true
+port = 80,443
+filter = nginx-cca
+logpath = $access_log
+maxretry = 60
+findtime = 60
+
+[nginx-scana-default]
+enabled = true
+port = 80,443
+filter = nginx-scana
+logpath = $access_log
+maxretry = 60
+findtime = 60
+#default_logs_end
+EOF
+
+    # 重启 fail2ban
+    systemctl restart fail2ban
+    echo -e "${GREEN}已添加默认日志到监控列表并重启服务${NC}"
+}
+
+# 删除默认日志监控
+remove_default_logs() {
+    local temp_file=$(mktemp)
+    
+    # 检查是否在监控中
+    if ! grep -q "#default_logs_start" /etc/fail2ban/jail.local; then
+        echo -e "${RED}默认日志不在监控列表中${NC}"
+        return 1
+    fi
+    
+    # 删除配置
+    sed "/#default_logs_start/,/#default_logs_end/d" /etc/fail2ban/jail.local > "$temp_file"
+    mv "$temp_file" /etc/fail2ban/jail.local
+    
+    # 重启 fail2ban
+    systemctl restart fail2ban
+    echo -e "${GREEN}已从监控列表中移除默认日志并重启服务${NC}"
+}
+
+# 修改主菜单
+show_menu() {
+    echo -e "\n${GREEN}Fail2Ban 管理脚本${NC}"
+    echo "1. 安装和配置 fail2ban/ufw/jq"
+    echo "2. 添加所有站点"
+    echo "3. 追加站点"
+    echo "4. 删除站点"
+    echo "5. 列出封禁的IP"
+    echo "6. 解除IP封禁"
+    echo "7. 列出已配置的站点"
+    echo "8. 添加默认日志监控"
+    echo "9. 删除默认日志监控"
+    echo "0. 退出"
+    echo -n "请选择: "
+}
+
+# 修改主程序的 case 语句
+while true; do
+    show_menu
+    read -r choice
+    case $choice in
+        1)
+            install_packages
+            configure_ufw
+            create_filters
+            echo -e "${GREEN}安装和配置完成${NC}"
+            ;;
+        2)
+            add_all_sites
+            echo -e "${GREEN}所有站点已添加${NC}"
+            ;;
+        3)
+            echo -n "请输入站点前缀: "
+            read -r site_prefix
+            add_site_config "$site_prefix"
+            echo -e "${GREEN}站点 ${site_prefix} 已添加${NC}"
+            ;;
+        4)
+            echo -n "请输入要删除的站点前缀: "
+            read -r site_prefix
+            remove_site "$site_prefix"
+            echo -e "${GREEN}站点 ${site_prefix} 已删除${NC}"
+            ;;
+        5)
+            list_banned_ips
+            ;;
+        6)
+            echo -n "请输入要解封的IP: "
+            read -r ip
+            unban_ip "$ip"
+            ;;
+        7)
+            list_configured_sites
+            ;;
+        8)
+            add_default_logs
+            ;;
+        9)
+            remove_default_logs
+            ;;
+        0)
+            echo -e "${GREEN}再见！${NC}"
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}无效的选择${NC}"
+            ;;
+    esac
+done
