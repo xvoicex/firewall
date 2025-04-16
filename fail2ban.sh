@@ -257,94 +257,104 @@ EOF
     echo -e "${GREEN}已创建所有必要的fail2ban配置文件${NC}"
 }
 
-# 更新jail.local中的logpath
-update_logpath() {
-    local site=$1
-    local jail_local="/etc/fail2ban/jail.local"
+# 一键添加所有站点
+add_all_sites() {
+    local log_dir="/var/log/nginx"
+    # 获取所有access和error日志
+    local access_logs=$(find "$log_dir" -name "*.access.log" | sort)
+    local error_logs=$(find "$log_dir" -name "*.error.log" | sort)
     
-    awk -v site="$site" '
-    /\[nginx-.*\]/ { 
-        in_section=1
-        print $0
-        next
-    }
-    /^\[.*\]/ { 
-        in_section=0
-        print $0
-        next
-    }
-    in_section && /^logpath\s*=\s*$/ {
-        print "logpath = /var/log/nginx/" site ".access.log"
-        print "         /var/log/nginx/" site ".error.log"
-        next
-    }
-    {
-        print $0
-    }
-    ' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
+    if [ -z "$access_logs" ]; then
+        echo -e "${RED}未找到任何nginx访问日志文件${NC}"
+        return
+    fi
+
+    # 准备所有日志路径
+    local all_logs=""
+    while IFS= read -r access_log; do
+        local error_log="${access_log/access.log/error.log}"
+        if [ -f "$error_log" ]; then
+            if [ -z "$all_logs" ]; then
+                all_logs="$access_log $error_log"
+            else
+                all_logs="$all_logs $access_log $error_log"
+            fi
+        fi
+    done <<< "$access_logs"
+
+    echo "找到以下日志文件："
+    echo "$all_logs" | tr ' ' '\n'
+
+    # 更新jail.local中的所有logpath
+    sed -i '/^logpath = /c\logpath = '"$all_logs"'' /etc/fail2ban/jail.local
+    
+    systemctl restart fail2ban
+    echo -e "${GREEN}已添加所有站点日志${NC}"
 }
 
 # 列出可追加的站点
 list_available_sites() {
     local log_dir="/var/log/nginx"
     # 获取当前配置中的站点
-    readarray -t current_sites < <(grep -r "^logpath = /var/log/nginx/" /etc/fail2ban/jail.local | sed 's|.*/nginx/||' | sed 's|\.access\.log.*||' | sort -u)
+    local current_logs=$(grep "^logpath = " /etc/fail2ban/jail.local | cut -d'=' -f2- | tr ' ' '\n' | sort -u)
     
-    # 获取所有可用的站点
-    readarray -t all_sites < <(find "$log_dir" -name "*.access.log" | sed 's|.*/||' | sed 's|\.access\.log$||' | sort -u)
+    # 获取所有可用的日志文件
+    local all_logs=$(find "$log_dir" -name "*.access.log" -o -name "*.error.log" | sort)
     
-    if [ ${#all_sites[@]} -eq 0 ]; then
-        echo -e "${RED}未找到任何nginx访问日志文件${NC}"
+    if [ -z "$all_logs" ]; then
+        echo -e "${RED}未找到任何nginx日志文件${NC}"
         return
     fi
 
-    echo "可追加的站点："
+    echo "可追加的日志文件："
     local i=1
     local found=0
-    for site in "${all_sites[@]}"; do
-        # 检查站点是否已存在于配置中
-        local exists=0
-        for current in "${current_sites[@]}"; do
-            if [ "$site" = "$current" ]; then
-                exists=1
-                break
-            fi
-        done
-        
-        if [ $exists -eq 0 ]; then
-            echo "$i.$site"
+    while IFS= read -r log; do
+        if ! echo "$current_logs" | grep -Fxq "$log"; then
+            echo "$i.$(basename "$log")"
             ((i++))
             found=1
         fi
-    done
+    done <<< "$all_logs"
 
     if [ $found -eq 0 ]; then
-        echo -e "${RED}没有可追加的站点${NC}"
+        echo -e "${RED}没有可追加的日志文件${NC}"
     fi
 }
 
 # 追加站点
 append_site() {
+    local log_dir="/var/log/nginx"
     # 首先列出可用的站点
     list_available_sites
     
-    if ! grep -q "^logpath = /var/log/nginx/" /etc/fail2ban/jail.local; then
-        echo -e "\n请从上面的列表中选择要追加的站点名称"
-        read -p "站点名称: " site
-        
-        if [ -f "/var/log/nginx/$site.access.log" ]; then
-            if grep -q "/var/log/nginx/$site.access.log" /etc/fail2ban/jail.local; then
-                echo -e "${RED}该站点已经存在于配置中${NC}"
-                return
-            fi
-            
-            update_logpath "$site"
-            systemctl restart fail2ban
-            echo -e "${GREEN}已追加站点 $site${NC}"
-        else
-            echo -e "${RED}站点日志文件不存在: /var/log/nginx/$site.access.log${NC}"
-        fi
+    echo -e "\n请输入要追加的站点名称（不包含.access.log或.error.log后缀）："
+    read -p "站点名称: " site
+    
+    local access_log="/var/log/nginx/$site.access.log"
+    local error_log="/var/log/nginx/$site.error.log"
+    
+    if [ ! -f "$access_log" ]; then
+        echo -e "${RED}访问日志文件不存在: $access_log${NC}"
+        return
     fi
+    
+    if [ ! -f "$error_log" ]; then
+        echo -e "${RED}错误日志文件不存在: $error_log${NC}"
+        return
+    fi
+
+    # 检查是否已存在
+    if grep -q "$access_log" /etc/fail2ban/jail.local; then
+        echo -e "${RED}该站点已经存在于配置中${NC}"
+        return
+    fi
+
+    # 追加日志路径到所有规则
+    sed -i "/^logpath = / s/$/ $access_log $error_log/" /etc/fail2ban/jail.local
+    
+    systemctl restart fail2ban
+    echo -e "${GREEN}已追加站点 $site${NC}"
 }
 
 # 列出封禁的IP
