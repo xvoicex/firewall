@@ -223,6 +223,10 @@ actionunban = ufw delete deny from <ip> to any port <port> proto <protocol>
 [Init]
 EOF
 
+# 创建jail.local配置
+create_fail2ban_configs() {
+    # ... 前面的 filter 配置保持不变 ...
+
     # 创建jail.local配置
     cat > "/etc/fail2ban/jail.local" << 'EOF'
 [DEFAULT]
@@ -233,7 +237,7 @@ banaction = ufw-comment
 banaction_allports = ufw-comment
 
 [nginx-cc]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-cc
 logpath = 
@@ -241,7 +245,7 @@ maxretry = 300
 findtime = 60
 
 [nginx-scan]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-scan
 logpath = 
@@ -249,7 +253,7 @@ maxretry = 5
 findtime = 300
 
 [nginx-req-limit]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-req-limit
 logpath = 
@@ -257,7 +261,7 @@ maxretry = 200
 findtime = 60
 
 [nginx-sql]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-sql
 logpath = 
@@ -265,7 +269,7 @@ maxretry = 2
 findtime = 600
 
 [nginx-xss]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-xss
 logpath = 
@@ -273,7 +277,7 @@ maxretry = 2
 findtime = 600
 
 [nginx-login]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-login
 logpath = 
@@ -281,7 +285,7 @@ maxretry = 5
 findtime = 300
 
 [nginx-crawler]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-crawler
 logpath = 
@@ -289,7 +293,7 @@ maxretry = 3
 findtime = 60
 
 [nginx-cc1]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-custom1
 logpath = 
@@ -297,7 +301,7 @@ maxretry = 5
 findtime = 300
 
 [nginx-scan1]
-enabled = true
+enabled = false
 port = http,https
 filter = nginx-custom2
 logpath = 
@@ -315,12 +319,47 @@ EOF
     echo -e "${GREEN}已创建所有必要的fail2ban配置文件${NC}"
 }
 
+
+# 更新jail.local中的logpath和enabled状态
+update_logpath() {
+    local site=$1
+    local jail_local="/etc/fail2ban/jail.local"
+    
+    # 检查是否有日志文件
+    if [ -f "/var/log/nginx/$site.access.log" ]; then
+        # 更新所有nginx相关规则
+        awk '
+        /\[nginx-.*\]/ { 
+            in_section=1
+            print $0
+            next
+        }
+        /^\[.*\]/ { 
+            in_section=0
+            print $0
+            next
+        }
+        in_section && /^enabled\s*=\s*false/ {
+            print "enabled = true"
+            next
+        }
+        in_section && /^logpath\s*=\s*$/ {
+            print "logpath = /var/log/nginx/'"$site"'.access.log"
+            print "         /var/log/nginx/'"$site"'.error.log"
+            next
+        }
+        {
+            print $0
+        }
+        ' "$jail_local" > "$jail_local.tmp" && mv "$jail_local.tmp" "$jail_local"
+    fi
+}
+
 # 一键添加所有站点
 add_all_sites() {
     local log_dir="/var/log/nginx"
     # 获取所有access和error日志
     local access_logs=$(find "$log_dir" -name "*.access.log" | sort)
-    local error_logs=$(find "$log_dir" -name "*.error.log" | sort)
     
     if [ -z "$access_logs" ]; then
         echo -e "${RED}未找到任何nginx访问日志文件${NC}"
@@ -343,8 +382,10 @@ add_all_sites() {
     echo "找到以下日志文件："
     echo "$all_logs" | tr ' ' '\n'
 
-    # 更新jail.local中的所有logpath
-    sed -i '/^logpath = /c\logpath = '"$all_logs"'' /etc/fail2ban/jail.local
+    # 更新jail.local中的所有logpath和enabled状态
+    sed -i -e '/^logpath = /c\logpath = '"$all_logs"'' \
+           -e '/\[nginx-.*\]/,/\[.*\]/ s/^enabled = false/enabled = true/' \
+           /etc/fail2ban/jail.local
     
     systemctl restart fail2ban
     echo -e "${GREEN}已添加所有站点日志${NC}"
