@@ -132,8 +132,8 @@ create_fail2ban_configs() {
         "nginx-xss"
         "nginx-login"
         "nginx-crawler"
-        "nginx-custom1"
-        "nginx-custom2"
+        "nginx-cca"
+        "nginx-scana"
     )
 
     # 创建各个filter文件
@@ -188,14 +188,14 @@ failregex = ^<HOST> .* "(?:Wget|curl|python-requests|Go-http-client|zgrab|Nmap|m
 ignoreregex =
 EOF
                 ;;
-            "nginx-custom1")
+            "nginx-cca")
                 cat > "$filter_dir/$filter.conf" << 'EOF'
 [Definition]
 failregex = ^<HOST> -.*- .*HTTP/1.* .* .*$
 ignoreregex =
 EOF
                 ;;
-            "nginx-custom2")
+            "nginx-scana")
                 cat > "$filter_dir/$filter.conf" << 'EOF'
 [Definition]
 failregex = ^<HOST> -.* /var/www/* HTTP/1\..
@@ -286,18 +286,18 @@ logpath =
 maxretry = 3
 findtime = 60
 
-[nginx-cc1]
+[nginx-cca]
 enabled = false
 port = http,https
-filter = nginx-custom1
+filter = nginx-cca
 logpath = 
 maxretry = 5
 findtime = 300
 
-[nginx-scan1]
+[nginx-scana]
 enabled = false
 port = http,https
-filter = nginx-custom2
+filter = nginx-scana
 logpath = 
 maxretry = 5
 findtime = 300
@@ -371,7 +371,7 @@ add_all_sites() {
         
         if [ -f "$error_log" ]; then
             # 为每个规则类型创建独立的jail
-            local jail_types=("cc" "scan" "req-limit" "sql" "xss" "login" "crawler")
+            local jail_types=("cc" "scan" "req-limit" "sql" "xss" "login" "crawler" "nginx-cca" "nginx-scana")
             
             for type in "${jail_types[@]}"; do
                 cat >> "/etc/fail2ban/jail.local" << EOF
