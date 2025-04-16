@@ -149,7 +149,7 @@ EOF
             "nginx-scan")
                 cat > "$filter_dir/$filter.conf" << 'EOF'
 [Definition]
-failregex = ^<HOST> .* ".*(?:\.\.\/|\/etc\/|\/usr\/|_\/|\.\.\.\/|%00|\\x00).*" (?:404|403|400) .*$
+failregex = ^<HOST> .* ".*(?:\.\.\/|\/etc\/|\/usr\/|_\/|\.\.\.\/|%%00|\\x00).*" (?:404|403|400) .*$
 ignoreregex =
 EOF
                 ;;
@@ -204,6 +204,8 @@ EOF
                 ;;
         esac
     done
+
+
 
     # 创建ufw-comment action配置
     cat > "/etc/fail2ban/action.d/ufw-comment.conf" << 'EOF'
