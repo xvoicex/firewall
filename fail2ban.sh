@@ -11,19 +11,75 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# 检查命令是否已安装
+check_command() {
+    command -v "$1" >/dev/null 2>&1
+}
+
 # 检测系统类型并安装软件
 install_packages() {
+    local packages_to_install=()
+    
+    # 检查每个必需的命令
+    if ! check_command fail2ban-client; then
+        packages_to_install+=("fail2ban")
+    fi
+    
+    if ! check_command ufw; then
+        packages_to_install+=("ufw")
+    fi
+    
+    if ! check_command jq; then
+        packages_to_install+=("jq")
+    fi
+    
+    # 如果所有命令都已安装，则退出
+    if [ ${#packages_to_install[@]} -eq 0 ]; then
+        echo -e "${GREEN}所有必需的软件包都已安装${NC}"
+        return 0
+    fi
+    
+    echo -e "需要安装以下软件包：${packages_to_install[*]}"
+    read -p "是否继续安装？(y/n): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "取消安装"
+        return 1
+    fi
+
+    # 根据系统类型安装软件包
     if [ -f /etc/debian_version ]; then
+        echo "检测到 Debian/Ubuntu 系统"
         apt update
-        apt install -y fail2ban ufw jq
+        for package in "${packages_to_install[@]}"; do
+            echo "正在安装 $package..."
+            apt install -y "$package"
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}安装 $package 失败${NC}"
+                return 1
+            fi
+        done
     elif [ -f /etc/redhat-release ]; then
+        echo "检测到 RHEL/CentOS 系统"
+        if ! check_command epel-release && [[ " ${packages_to_install[@]} " =~ " fail2ban " ]]; then
+            echo "正在安装 EPEL 仓库..."
+            yum install -y epel-release
+        fi
         yum update
-        yum install -y epel-release
-        yum install -y fail2ban ufw jq
+        for package in "${packages_to_install[@]}"; do
+            echo "正在安装 $package..."
+            yum install -y "$package"
+            if [ $? -ne 0 ]; then
+                echo -e "${RED}安装 $package 失败${NC}"
+                return 1
+            fi
+        done
     else
         echo -e "${RED}不支持的系统类型${NC}"
-        exit 1
+        return 1
     fi
+
+    echo -e "${GREEN}所有软件包安装完成${NC}"
+    return 0
 }
 
 # 配置UFW
@@ -357,6 +413,61 @@ append_site() {
     echo -e "${GREEN}已追加站点 $site${NC}"
 }
 
+
+# 列出已配置的站点
+list_configured_sites() {
+    local log_dir="/var/log/nginx"
+    echo "当前已配置的站点："
+    
+    # 获取当前配置中的站点
+    local current_logs=$(grep "^logpath = " /etc/fail2ban/jail.local | head -n 1 | cut -d'=' -f2- | tr ' ' '\n' | grep "\.access\.log$" | sort)
+    
+    if [ -z "$current_logs" ]; then
+        echo -e "${RED}没有找到已配置的站点${NC}"
+        return 1
+    fi
+
+    local i=1
+    while IFS= read -r log; do
+        local site=$(basename "$log" .access.log)
+        echo "$i.$site"
+        ((i++))
+    done <<< "$current_logs"
+    
+    return 0
+}
+
+# 删除站点
+remove_site() {
+    if ! list_configured_sites; then
+        return
+    fi
+    
+    echo -e "\n请输入要删除的站点名称（不包含.access.log或.error.log后缀）："
+    read -p "站点名称: " site
+    
+    local access_log="/var/log/nginx/$site.access.log"
+    local error_log="/var/log/nginx/$site.error.log"
+    
+    # 检查站点是否在配置中
+    if ! grep -q "$access_log" /etc/fail2ban/jail.local; then
+        echo -e "${RED}该站点不在配置中${NC}"
+        return
+    fi
+
+    # 从所有规则中删除该站点的日志路径
+    sed -i "s| $access_log||g" /etc/fail2ban/jail.local
+    sed -i "s| $error_log||g" /etc/fail2ban/jail.local
+    
+    # 清理可能的前导空格
+    sed -i 's/logpath =  */logpath = /' /etc/fail2ban/jail.local
+    
+    systemctl restart fail2ban
+    echo -e "${GREEN}已删除站点 $site${NC}"
+}
+
+
+
 # 列出封禁的IP
 list_banned_ips() {
     echo "已封禁的IP列表："
@@ -382,11 +493,13 @@ main_menu() {
         echo "1. 安装和配置系统"
         echo "2. 一键添加所有站点"
         echo "3. 追加站点"
-        echo "4. 列出封禁的IP"
-        echo "5. 解除IP封禁"
-        echo "6. 退出"
+        echo "4. 删除站点"
+        echo "5. 列出已配置站点"
+        echo "6. 列出封禁的IP"
+        echo "7. 解除IP封禁"
+        echo "8. 退出"
         
-        read -p "请选择操作 (1-6): " choice
+        read -p "请选择操作 (1-8): " choice
         
         case $choice in
             1)
@@ -402,12 +515,18 @@ main_menu() {
                 append_site
                 ;;
             4)
-                list_banned_ips
+                remove_site
                 ;;
             5)
-                unban_ip
+                list_configured_sites
                 ;;
             6)
+                list_banned_ips
+                ;;
+            7)
+                unban_ip
+                ;;
+            8)
                 exit 0
                 ;;
             *)
