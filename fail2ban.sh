@@ -205,8 +205,6 @@ EOF
         esac
     done
 
-
-
     # 创建ufw-comment action配置
     cat > "/etc/fail2ban/action.d/ufw-comment.conf" << 'EOF'
 [Definition]
@@ -222,10 +220,6 @@ actionunban = ufw delete deny from <ip> to any port <port> proto <protocol>
 
 [Init]
 EOF
-
-# 创建jail.local配置
-create_fail2ban_configs() {
-    # ... 前面的 filter 配置保持不变 ...
 
     # 创建jail.local配置
     cat > "/etc/fail2ban/jail.local" << 'EOF'
