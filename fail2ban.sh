@@ -1208,6 +1208,213 @@ manage_site_config() {
     done
 }
 
+# 启动fail2ban服务
+start_fail2ban() {
+    if command_exists systemctl; then
+        systemctl start fail2ban
+    elif command_exists service; then
+        service fail2ban start
+    elif [ -f /etc/init.d/fail2ban ]; then
+        /etc/init.d/fail2ban start
+    else
+        print_status "无法识别系统的服务管理器" "error"
+        return 1
+    fi
+    
+    # 等待服务启动
+    sleep 2
+    check_fail2ban_status
+    return $?
+}
+
+# 显示fail2ban状态（美化版）
+show_status() {
+    clear
+    print_header "Fail2Ban 系统状态"
+    
+    if ! command_exists fail2ban-client; then
+        print_status "fail2ban-client 未安装" "error"
+        return 1
+    fi
+    
+    # 检查服务是否运行
+    if ! check_fail2ban_status; then
+        print_status "Fail2Ban 服务未运行" "error"
+        
+        if command_exists systemctl; then
+            local status_info=$(systemctl status fail2ban | head -n 5)
+            echo -e "${YELLOW}${INFO_ICON} 服务状态信息:${NC}\n$status_info"
+        fi
+        
+        echo
+        print_status "正在尝试启动服务..." "info"
+        
+        if ! start_fail2ban; then
+            print_status "无法启动 Fail2Ban 服务" "error"
+            return 1
+        else
+            print_status "Fail2Ban 服务已成功启动" "success"
+        fi
+    else
+        print_status "Fail2Ban 服务正在运行" "success"
+    fi
+    
+    # 显示版本信息
+    local version_info=$(fail2ban-client --version 2>/dev/null)
+    echo -e "\n${BOLD}${CYAN}Fail2Ban 版本:${NC}"
+    print_divider "-"
+    echo -e "${GREEN}$version_info${NC}"
+    
+    # 显示状态概览
+    echo -e "\n${BOLD}${CYAN}Fail2Ban 状态概览:${NC}"
+    print_divider "-"
+    local status_overview=$(fail2ban-client status)
+    echo -e "$status_overview"
+    
+    # 获取并显示各个jail的详细状态
+    local jails=$(echo "$status_overview" | grep "Jail list:" | cut -d':' -f2 | tr ',' ' ')
+    
+    if [ ! -z "$jails" ]; then
+        echo -e "\n${BOLD}${CYAN}Jail 状态详情:${NC}"
+        print_divider "-"
+        
+        for jail in $jails; do
+            jail=$(echo "$jail" | tr -d ' ')
+            if [ ! -z "$jail" ]; then
+                echo -ne "${CYAN}正在获取 ${jail} 状态...${NC}\r"
+                local status_output=$(fail2ban-client status "$jail")
+                
+                # 提取数据
+                local filter=$(echo "$status_output" | grep "Filter:" | awk -F: '{print $2}' | xargs)
+                local actions=$(echo "$status_output" | grep "Actions:" | awk -F: '{print $2}' | xargs)
+                local current_banned=$(echo "$status_output" | grep "Currently banned:" | awk '{print $4}')
+                local total_banned=$(echo "$status_output" | grep "Total banned:" | awk '{print $4}')
+                local banned_ips=$(echo "$status_output" | grep "Banned IP list:" | cut -d':' -f2)
+                
+                # 显示Jail标题
+                echo -e "\n${BOLD}${WHITE}[$jail]${NC} - ${BG_BLUE}${WHITE} 当前封禁: $current_banned 个IP ${NC}"
+                
+                # 显示详细信息
+                echo -e "${BLUE}过滤器:${NC} $filter"
+                echo -e "${BLUE}动作:${NC} $actions"
+                echo -e "${BLUE}当前封禁:${NC} $current_banned"
+                echo -e "${BLUE}总计封禁:${NC} $total_banned"
+                
+                # 如果有封禁的IP，则显示列表
+                if [ "$current_banned" -gt 0 ]; then
+                    print_divider "·"
+                    echo -e "${YELLOW}${LOCK_ICON} 已封禁IP列表:${NC}"
+                    echo "$banned_ips" | tr ',' '\n' | sed 's/^ //g' | while read -r ip; do
+                        [ -z "$ip" ] && continue
+                        echo -e " ${ARROW_ICON} ${YELLOW}$ip${NC}"
+                    done
+                fi
+            fi
+        done
+    fi
+    
+    return 0
+}
+
+# 修改IP白名单
+edit_whitelist() {
+    [ ! -f "$CONFIG_FILE" ] && print_status "配置文件不存在" "error" && return 1
+    
+    clear
+    print_header "IP白名单管理"
+    
+    # 提取当前白名单
+    local current_whitelist=$(grep "^ignoreip" "$CONFIG_FILE" | cut -d'=' -f2 | sed 's/^[ \t]*//')
+    
+    echo -e "${BOLD}${CYAN}当前白名单IP列表:${NC}"
+    print_divider "-"
+    
+    if [ -z "$current_whitelist" ]; then
+        print_status "当前没有设置白名单IP" "warning"
+    else
+        local i=1
+        echo "$current_whitelist" | tr ',' '\n' | while read -r ip; do
+            [ -z "$ip" ] && continue
+            echo -e "${CYAN}${i}.${NC} ${ip}"
+            i=$((i+1))
+        done
+    fi
+    
+    print_divider "-"
+    
+    # 显示选项
+    echo
+    show_menu_option "1" "添加IP到白名单"
+    show_menu_option "2" "从白名单中删除IP"
+    show_menu_option "3" "返回主菜单"
+    echo
+    
+    echo -ne "${BOLD}请选择:${NC} "
+    read -r op_choice
+    
+    case $op_choice in
+        1) # 添加IP
+            echo -ne "${BOLD}请输入要添加的IP (多个IP用逗号分隔):${NC} "
+            read -r new_ips
+            [ -z "$new_ips" ] && return 0
+            
+            # 显示进度条
+            show_progress "更新白名单" 0.05
+            
+            # 合并并去重
+            local combined_list="${current_whitelist},${new_ips}"
+            local unique_list=$(echo "$combined_list" | tr ',' '\n' | sort -u | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+            
+            # 更新配置
+            sed -i "s/^ignoreip = .*$/ignoreip = ${unique_list}/" "$CONFIG_FILE" && \
+                restart_fail2ban && \
+                print_status "已更新白名单并重启服务" "success"
+            ;;
+        2) # 删除IP
+            if [ -z "$current_whitelist" ]; then
+                print_status "没有可删除的IP" "warning"
+                return 0
+            fi
+            
+            echo -ne "${BOLD}请输入要删除的IP编号(多个用空格分隔):${NC} "
+            read -r ids
+            [ -z "$ids" ] && return 0
+            
+            # 显示进度条
+            show_progress "更新白名单" 0.05
+            
+            # 将白名单转换为数组
+            IFS=',' read -r -a ip_array <<< "$current_whitelist"
+            
+            # 创建新列表，排除要删除的IP
+            local new_list=()
+            local ip_count=${#ip_array[@]}
+            
+            for i in $(seq 0 $((ip_count-1))); do
+                if ! echo " $ids " | grep -q " $((i+1)) "; then
+                    new_list+=("${ip_array[$i]}")
+                fi
+            done
+            
+            # 转换回逗号分隔的字符串
+            local new_list_str=$(IFS=,; echo "${new_list[*]}")
+            
+            # 更新配置
+            sed -i "s/^ignoreip = .*$/ignoreip = ${new_list_str}/" "$CONFIG_FILE" && \
+                restart_fail2ban && \
+                print_status "已更新白名单并重启服务" "success"
+            ;;
+        3) # 返回
+            return 0
+            ;;
+        *)
+            print_status "无效的选择" "error"
+            ;;
+    esac
+    
+    return 0
+}
+
 # 主程序
 main() {
     # 检测系统和防火墙类型
@@ -1285,13 +1492,9 @@ main() {
                 list_configured_sites
                 ;;
             7) # 修改白名单
-                clear
-                print_header "IP白名单管理"
                 edit_whitelist
                 ;;
             8) # 显示状态
-                clear
-                print_header "Fail2Ban状态"
                 show_status
                 ;;
             0) # 退出
