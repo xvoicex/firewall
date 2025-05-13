@@ -247,30 +247,15 @@ scan_suspicious_content() {
         suspicious_comments=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 5. 扫描可疑元数据
-    local query5="SELECT meta_id, post_id, meta_key, meta_value
-                 FROM ${DB_PREFIX}postmeta 
-                 WHERE LOWER(meta_value) LIKE '%<script%' 
-                    OR LOWER(meta_value) LIKE '%eval(%' 
-                    OR LOWER(meta_value) LIKE '%base64_%'
-                    OR LOWER(meta_value) LIKE '%iframe%';"
-                    
-    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query5" "${site_report_dir}/results/suspicious_postmeta.txt"
-    local suspicious_postmeta=0
-    if [ -f "${site_report_dir}/results/suspicious_postmeta.txt" ]; then
-        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_postmeta.txt")
-        suspicious_postmeta=$((line_count > 1 ? line_count - 1 : 0))
-    fi
-    
-    # 6. 检查可疑日期文章
-    local query6="SELECT p.ID, p.post_author, p.post_date, p.post_title, p.post_status, 
+    # 5. 检查可疑日期文章
+    local query5="SELECT p.ID, p.post_author, p.post_date, p.post_title, p.post_status, 
                        p.post_name, p.post_modified, u.user_login
                  FROM ${DB_PREFIX}posts p
                  JOIN ${DB_PREFIX}users u ON p.post_author = u.ID
                  WHERE p.post_date > NOW() 
                     OR p.post_modified > NOW();"
                     
-    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query6" "${site_report_dir}/results/suspicious_dates.txt"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query5" "${site_report_dir}/results/suspicious_dates.txt"
     local suspicious_dates=0
     if [ -f "${site_report_dir}/results/suspicious_dates.txt" ]; then
         local line_count=$(wc -l < "${site_report_dir}/results/suspicious_dates.txt")
@@ -278,7 +263,7 @@ scan_suspicious_content() {
     fi
     
     # 计算总可疑项目数
-    local total_suspicious=$((suspicious_posts + suspicious_users + suspicious_options + suspicious_comments + suspicious_postmeta + suspicious_dates))
+    local total_suspicious=$((suspicious_posts + suspicious_users + suspicious_options + suspicious_comments + suspicious_dates))
     ((TOTAL_SUSPICIOUS += total_suspicious))
     
     # 获取数据库大小
@@ -338,7 +323,7 @@ scan_suspicious_content() {
     echo "${site_dir}|${site_url}|${DB_NAME}|${db_size}|${table_count}|${post_count}|${user_count}|${comment_count}|${wp_version}|${total_suspicious}" >> "${TEMP_DIR}/all_sites_info.txt"
     
     # 创建单站点报告
-    create_site_report "$site_dir" "$site_report_dir" "$site_url" "$DB_NAME" "$db_size" "$table_count" "$post_count" "$user_count" "$comment_count" "$wp_version" "$total_suspicious" "$suspicious_posts" "$suspicious_users" "$suspicious_options" "$suspicious_comments" "$suspicious_postmeta" "$suspicious_dates"
+    create_site_report "$site_dir" "$site_report_dir" "$site_url" "$DB_NAME" "$db_size" "$table_count" "$post_count" "$user_count" "$comment_count" "$wp_version" "$total_suspicious" "$suspicious_posts" "$suspicious_users" "$suspicious_options" "$suspicious_comments" "$suspicious_dates"
     
     log "站点扫描完成: $site_dir (发现可疑项: $total_suspicious)"
     
@@ -926,8 +911,7 @@ create_site_report() {
     local suspicious_users=${13}
     local suspicious_options=${14}
     local suspicious_comments=${15}
-    local suspicious_postmeta=${16}
-    local suspicious_dates=${17}
+    local suspicious_dates=${16}
     
     # 确保WordPress版本不为空
     if [ -z "$wp_version" ] || [ "$wp_version" = "未知" ]; then
@@ -944,7 +928,7 @@ create_site_report() {
     
     # 检查结果文件存在性
     local results_dir="${site_report_dir}/results"
-    for result_file in suspicious_posts.txt suspicious_users.txt suspicious_options.txt suspicious_comments.txt suspicious_postmeta.txt suspicious_dates.txt; do
+    for result_file in suspicious_posts.txt suspicious_users.txt suspicious_options.txt suspicious_comments.txt suspicious_dates.txt; do
         if [ ! -f "${results_dir}/${result_file}" ]; then
             touch "${results_dir}/${result_file}"
         fi
@@ -1097,7 +1081,6 @@ create_site_report() {
         <button class="tab-button" onclick="openTab(event, 'suspicious-users')">可疑用户 (${suspicious_users})</button>
         <button class="tab-button" onclick="openTab(event, 'suspicious-options')">可疑选项 (${suspicious_options})</button>
         <button class="tab-button" onclick="openTab(event, 'suspicious-comments')">可疑评论 (${suspicious_comments})</button>
-        <button class="tab-button" onclick="openTab(event, 'suspicious-postmeta')">可疑元数据 (${suspicious_postmeta})</button>
         <button class="tab-button" onclick="openTab(event, 'suspicious-dates')">可疑日期 (${suspicious_dates})</button>
     </div>
     
@@ -1181,26 +1164,6 @@ EOL
     cat >> "${site_report_dir}/report.html" << EOL
     </div>
     
-    <div id="suspicious-postmeta" class="tab-content">
-        <h3>可疑元数据</h3>
-EOL
-
-    # 插入可疑元数据表格
-    if [ "$suspicious_postmeta" -gt 0 ]; then
-        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
-        head -n 1 "${results_dir}/suspicious_postmeta.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
-        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
-        
-        tail -n +2 "${results_dir}/suspicious_postmeta.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
-        
-        echo '</tbody></table>' >> "${site_report_dir}/report.html"
-    else
-        echo '<p>未发现可疑元数据</p>' >> "${site_report_dir}/report.html"
-    fi
-
-    cat >> "${site_report_dir}/report.html" << EOL
-    </div>
-    
     <div id="suspicious-dates" class="tab-content">
         <h3>可疑日期</h3>
 EOL
@@ -1276,7 +1239,6 @@ create_master_report() {
     local total_suspicious_users=0
     local total_suspicious_options=0
     local total_suspicious_comments=0
-    local total_suspicious_postmeta=0
     local total_suspicious_dates=0
     
     if [ -f "${TEMP_DIR}/all_sites_info.txt" ]; then
@@ -1336,13 +1298,6 @@ create_master_report() {
                 local line_count=$(wc -l < "${site_report_path}/results/suspicious_comments.txt")
                 local site_suspicious_comments=$((line_count > 1 ? line_count - 1 : 0))
                 ((total_suspicious_comments += site_suspicious_comments))
-            fi
-            
-            # 获取可疑元数据数
-            if [ -f "${site_report_path}/results/suspicious_postmeta.txt" ]; then
-                local line_count=$(wc -l < "${site_report_path}/results/suspicious_postmeta.txt")
-                local site_suspicious_postmeta=$((line_count > 1 ? line_count - 1 : 0))
-                ((total_suspicious_postmeta += site_suspicious_postmeta))
             fi
             
             # 获取可疑日期数
@@ -1891,7 +1846,7 @@ EOL
                     </div>
                     <div class="card" style="border-top-color: var(--danger-color);">
                         <h3>可疑元数据</h3>
-                        <p class="value" style="color: var(--danger-color);">${total_suspicious_postmeta}</p>
+                        <p class="value" style="color: var(--danger-color);">${total_suspicious_dates}</p>
                     </div>
                     <div class="card" style="border-top-color: var(--warning-color);">
                         <h3>可疑日期</h3>
