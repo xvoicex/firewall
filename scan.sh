@@ -958,12 +958,13 @@ create_site_report() {
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WordPress站点扫描报告 - ${site_name}</title>
     <style>
         body {
-            font-family: 'Arial', sans-serif;
+            font-family: 'Arial', 'Microsoft YaHei', '微软雅黑', sans-serif;
             line-height: 1.6;
             color: #333;
             max-width: 1200px;
@@ -1367,6 +1368,7 @@ create_master_report() {
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WordPress数据库扫描报告</title>
@@ -1389,7 +1391,7 @@ create_master_report() {
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", "Microsoft YaHei", "微软雅黑", sans-serif;
             line-height: 1.6;
             color: #333;
             background-color: #f1f1f1;
@@ -1920,8 +1922,37 @@ process_report_output() {
         mkdir -p "$output_dir"
         cp -r "${REPORT_DIR}"/* "$output_dir/"
         chmod -R 755 "$output_dir"
+        
+        # 创建 .htaccess 文件，确保字符编码正确
+        cat > "${output_dir}/.htaccess" << EOF
+AddDefaultCharset UTF-8
+<FilesMatch "\.(html|htm)$">
+    AddCharset UTF-8 .html .htm
+    Header set Content-Type "text/html; charset=UTF-8"
+</FilesMatch>
+EOF
+        
+        # 在 Nginx 环境中，创建一个适用的配置文件，以便系统管理员参考
+        cat > "${output_dir}/nginx-charset.conf" << EOF
+# 将此文件内容添加到 Nginx 站点配置中以确保正确的字符编码
+# 示例位置: /etc/nginx/conf.d/default.conf 或 /etc/nginx/sites-available/default
+#
+# location /wp_scan_report_$(date +%Y%m%d)/ {
+#     charset utf-8;
+#     source_charset utf-8;
+#     override_charset on;
+#     
+#     add_header Content-Type "text/html; charset=utf-8" always;
+# }
+EOF
+        
+        # 修复所有 HTML 文件，确保字符集正确
+        find "${output_dir}" -name "*.html" -type f -exec sed -i '1s/^/<?xml version="1.0" encoding="UTF-8"?>\n/' {} \;
+        
         log "报告已输出到: $output_dir"
+        log "已添加字符编码配置，以确保中文正确显示"
         echo -e "${GREEN}报告已生成，请访问: http://服务器IP/wp_scan_report_$(date +%Y%m%d)/${NC}"
+        echo -e "${YELLOW}如果中文仍然显示乱码，请检查服务器配置，并参考 ${output_dir}/nginx-charset.conf 文件${NC}"
     else
         # 其他情况打包成tar放在用户目录下
         local user_home=$(eval echo ~$(whoami))
