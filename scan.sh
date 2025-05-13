@@ -1622,7 +1622,7 @@ create_master_report() {
         // 页面加载完成后执行
         document.addEventListener('DOMContentLoaded', function() {
             // 站点表格分页功能
-            initPagination('site-url-table', 5);
+            initPagination('site-url-table', 30);
             
             // 搜索功能
             const searchButton = document.getElementById('search-button');
@@ -1800,7 +1800,7 @@ create_master_report() {
                 </div>
             </section>
             
-            <section>
+            <section id="sites-section">
                 <h2>站点信息</h2>
                 <div class="search-box">
                     <input type="text" id="search-input" placeholder="搜索站点...">
@@ -1864,48 +1864,48 @@ EOL
 EOL
     fi
 
-    # 完成HTML
+    # 完成表格
     cat >> "${output_dir}/index.html" << EOL
-        </tbody>
-    </table>
-    </section>
+                    </tbody>
+                </table>
+            </section>
     
-    <section>
-        <h2>可疑内容统计</h2>
-        <div class="summary-cards">
-            <div class="card" style="border-top-color: var(--danger-color);">
-                <h3>可疑文章</h3>
-                <p class="value" style="color: var(--danger-color);">${total_suspicious_posts}</p>
-            </div>
-            <div class="card" style="border-top-color: var(--warning-color);">
-                <h3>可疑用户</h3>
-                <p class="value" style="color: var(--warning-color);">${total_suspicious_users}</p>
-            </div>
-            <div class="card" style="border-top-color: var(--danger-color);">
-                <h3>可疑选项</h3>
-                <p class="value" style="color: var(--danger-color);">${total_suspicious_options}</p>
-            </div>
-            <div class="card" style="border-top-color: var(--warning-color);">
-                <h3>可疑评论</h3>
-                <p class="value" style="color: var(--warning-color);">${total_suspicious_comments}</p>
-            </div>
-            <div class="card" style="border-top-color: var(--danger-color);">
-                <h3>可疑元数据</h3>
-                <p class="value" style="color: var(--danger-color);">${total_suspicious_postmeta}</p>
-            </div>
-            <div class="card" style="border-top-color: var(--warning-color);">
-                <h3>可疑日期</h3>
-                <p class="value" style="color: var(--warning-color);">${total_suspicious_dates}</p>
-            </div>
+            <section>
+                <h2>可疑内容统计</h2>
+                <div class="summary-cards">
+                    <div class="card" style="border-top-color: var(--danger-color);">
+                        <h3>可疑文章</h3>
+                        <p class="value" style="color: var(--danger-color);">${total_suspicious_posts}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--warning-color);">
+                        <h3>可疑用户</h3>
+                        <p class="value" style="color: var(--warning-color);">${total_suspicious_users}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--danger-color);">
+                        <h3>可疑选项</h3>
+                        <p class="value" style="color: var(--danger-color);">${total_suspicious_options}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--warning-color);">
+                        <h3>可疑评论</h3>
+                        <p class="value" style="color: var(--warning-color);">${total_suspicious_comments}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--danger-color);">
+                        <h3>可疑元数据</h3>
+                        <p class="value" style="color: var(--danger-color);">${total_suspicious_postmeta}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--warning-color);">
+                        <h3>可疑日期</h3>
+                        <p class="value" style="color: var(--warning-color);">${total_suspicious_dates}</p>
+                    </div>
+                </div>
+            </section>
+    
+            <footer>
+                <p>WordPress数据库扫描工具 - 生成于 ${timestamp}</p>
+            </footer>
         </div>
-    </section>
-    
-    <footer>
-        <p>WordPress数据库扫描工具 - 生成于 ${timestamp}</p>
-    </footer>
-</div>
-</body>
-</html>
+    </body>
+    </html>
 EOL
 
     log "总报告生成完成: ${output_dir}/index.html"
