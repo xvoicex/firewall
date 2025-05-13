@@ -1,1324 +1,1998 @@
 #!/bin/bash
-
-# WordPress 数据库内容扫描工具
-# 一键扫描WordPress站点数据库中的违规内容
+# WordPress数据库扫描脚本 - 检测垃圾信息 (合并版本)
+# 可通过 curl https://xxxxx | bash 方式运行
 
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
 NC='\033[0m' # 无颜色
 
-# 字体样式
-BOLD='\033[1m'
-UNDERLINE='\033[4m'
+# 全局变量
+SCRIPT_DIR="$(pwd)/wp_scan_$(date +%Y%m%d%H%M%S)"
+REPORT_DIR="${SCRIPT_DIR}/reports"
+TEMP_DIR="${SCRIPT_DIR}/temp"
+TOTAL_SITES=0
+TOTAL_SUSPICIOUS=0
+FOUND_SITES=()
+CURRENT_DATE=$(date +"%Y年%m月%d日 %H:%M:%S")
+SCAN_START_TIME=$(date +%s)
 
-# 版本信息
-VERSION="1.0.5"
+# 确保目录存在
+mkdir -p "$REPORT_DIR" "$TEMP_DIR"
 
-# 默认值
-OUTPUT_DIR="$(pwd)/wp_scan_results_$(date +%Y%m%d_%H%M%S)"
-LOG_LEVEL=1  # 0=禁止输出, 1=正常, 2=详细, 3=调试
-LOG_TO_CONSOLE=1  # 1=输出到控制台, 0=只输出到日志文件
+# 这里会在脚本执行时插入HTML模板和报告生成器函数
+# 为了减小脚本体积，将模板转换为纯代码嵌入
 
-# 用于存储站点URL和名称的关联数组
-declare -A SITE_URLS
-declare -A SITE_NAMES
-declare -A DB_CONNECTIONS
-
-# 违规关键词列表
-PORN_KEYWORDS=(
-    "色情" "淫" "性爱" "做爱" "口交" "肛交" "乳交" "群交" "嫖娼" "妓女" "卖淫"
-    "porn" "xxx" "pussy" "dick" "cock" "tits" "boobs" "masturbation"
-    "webcam girl" "escort" "stripper" "call girl" "prostitute"
-)
-
-GAMBLE_KEYWORDS=(
-    "赌博" "博彩" "彩票" "赌场" "投注" "下注" "娱乐城" "网上赌场" "百家乐"
-    "gambling" "casino" "lottery" "poker" "slots" "roulette" "blackjack"
-    "bookmaker" "sportsbook" "wager"
-)
-
-AD_KEYWORDS=(
-    "代理" "推广" "推销" "佣金" "联盟"
-    "advertise" "click here" "cheap" "best price"
-    "buy now" "earn money" "make money"
-)
-
-SUSPICIOUS_DOMAINS=(
-    ".bet" ".casino" ".porn" ".sex" ".xxx"
-)
-
-# 显示横幅
-show_banner() {
-    echo -e "${CYAN}"
-    echo -e "██╗    ██╗██████╗     ███████╗ ██████╗ █████╗ ███╗   ██╗"
-    echo -e "██║    ██║██╔══██╗    ██╔════╝██╔════╝██╔══██╗████╗  ██║"
-    echo -e "██║ █╗ ██║██████╔╝    ███████╗██║     ███████║██╔██╗ ██║"
-    echo -e "██║███╗██║██╔═══╝     ╚════██║██║     ██╔══██║██║╚██╗██║"
-    echo -e "╚███╔███╔╝██║         ███████║╚██████╗██║  ██║██║ ╚████║"
-    echo -e " ╚══╝╚══╝ ╚═╝         ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝"
-    echo -e "                                                       "
-    echo -e "${WHITE}${BOLD}WordPress 数据库内容扫描工具 v${VERSION}${NC}"
-    echo -e "${BLUE}一键扫描WordPress站点数据库中的违规内容${NC}"
-    echo -e "=============================================================="
-    echo ""
-}
+# --------------------------
+# 1. 基础函数
+# --------------------------
 
 # 记录日志
 log() {
-    if [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&2
-    fi
+    echo -e "[$(date +"%Y-%m-%d %H:%M:%S")] $1"
+    echo "[$(date +"%Y-%m-%d %H:%M:%S")] $1" >> "${SCRIPT_DIR}/scan.log"
 }
 
-# 记录错误日志
-log_error() {
-    if [ "$LOG_LEVEL" -ge 0 ] && [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${RED}[✗] $1${NC}" >&2
-    fi
+# 显示帮助信息
+show_banner() {
+    echo -e "${BLUE}"
+    echo "=============================================="
+    echo "      WordPress 数据库扫描工具 V1.0"
+    echo "=============================================="
+    echo -e "${NC}"
+    echo "检测垃圾信息、恶意代码及可疑内容"
+    echo "扫描开始时间: ${CURRENT_DATE}"
+    echo "报告输出目录: ${SCRIPT_DIR}"
+    echo ""
 }
 
-# 记录成功日志
-log_success() {
-    if [ "$LOG_LEVEL" -ge 1 ] && [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${GREEN}[✓] $1${NC}" >&2
-    fi
-}
+# --------------------------
+# 2. 站点查找和数据库连接函数
+# --------------------------
 
-# 记录警告日志
-log_warning() {
-    if [ "$LOG_LEVEL" -ge 1 ] && [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${YELLOW}[!] $1${NC}" >&2
-    fi
-}
-
-# 记录信息日志
-log_info() {
-    if [ "$LOG_LEVEL" -ge 1 ] && [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${BLUE}[i] $1${NC}" >&2
-    fi
-}
-
-# 记录详细日志
-log_debug() {
-    if [ "$LOG_LEVEL" -ge 3 ] && [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${CYAN}[D] $1${NC}" >&2
-    fi
-}
-
-# 分隔线
-print_separator() {
-    if [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        echo -e "${BLUE}------------------------------------------------------------${NC}" >&2
-    fi
-}
-
-# 进度条
-show_progress() {
-    if [ "$LOG_TO_CONSOLE" -eq 1 ]; then
-        local current=$1
-        local total=$2
-        local percent=$((current * 100 / total))
-        local filled=$((percent / 2))
-        local empty=$((50 - filled))
-        
-        # 使用\r回到行首，覆盖之前的进度条
-        printf "\r${WHITE}[${GREEN}" >&2
-        for ((i=0; i<filled; i++)); do
-            printf "█" >&2
-        done
-        
-        for ((i=0; i<empty; i++)); do
-            printf "${WHITE}░" >&2
-        done
-        
-        printf "${WHITE}] ${percent}%%${NC}" >&2
-        # 不添加换行符，确保进度条在同一行更新
-    fi
-}
-
-# 写入报告内容，确保没有ANSI颜色代码
-write_to_report() {
-    local report_file="$1"
-    local content="$2"
-    # 移除所有ANSI颜色代码
-    local clean_content=$(echo "$content" | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g")
-    echo "$clean_content" >> "$report_file"
-}
-
-# 清理ANSI颜色代码
-clean_ansi_codes() {
-    echo "$1" | sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g" | grep -v "mysql: \[Warning\]"
-}
-
-# 获取站点URL的多种方式 - 无调试版
-get_site_url_clean() {
-    local site_path="$1"
-    local db_prefix="$2"
-    local site_url=""
-    local domain_name=""
+# 查找所有WordPress站点
+find_wordpress_sites() {
+    log "开始查找WordPress站点..."
     
-    # 方法1: 从数据库获取
-    if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ]; then
-        log_info "尝试从数据库获取站点URL (表: ${db_prefix}options)..."
-        
-        # 直接使用精确匹配查询siteurl选项，使用无日志版本
-        local url_query="SELECT option_value FROM ${db_prefix}options WHERE option_name = 'siteurl';"
-        site_url=$(run_mysql_query_silent "$url_query")
-        
-        if [ -n "$site_url" ]; then
-            log_success "从数据库成功获取到站点URL: $site_url"
-        else
-            log_warning "未找到siteurl选项，尝试查询home选项..."
-            
-            # 尝试查询home选项
-            local home_query="SELECT option_value FROM ${db_prefix}options WHERE option_name = 'home';"
-            site_url=$(run_mysql_query_silent "$home_query")
-            
-            if [ -n "$site_url" ]; then
-                log_success "从数据库的home选项获取到站点URL: $site_url"
-            else
-                # 尝试其他获取方法
-                log_info "尝试获取options表中所有与URL相关的选项..."
-                local all_urls_query="SELECT option_id, option_name, option_value FROM ${db_prefix}options WHERE option_name LIKE '%url%' OR option_name LIKE '%site%';"
-                local all_urls=$(run_mysql_query_silent "$all_urls_query")
-                
-                if [ -n "$all_urls" ]; then
-                    log_debug "找到URL相关选项: $all_urls"
+    # 检查常见的网站根目录
+    WEB_ROOTS=("/var/www/" "/www/wwwroot/" "/usr/share/nginx/html/" "/usr/local/apache2/htdocs/")
+    
+    # 添加当前目录及上级目录以提高灵活性
+    WEB_ROOTS+=("$(pwd)" "$(dirname "$(pwd)")")
+    
+    for root in "${WEB_ROOTS[@]}"; do
+        if [ -d "$root" ]; then
+            log "检查目录: $root"
+            # 使用进程替换而不是管道，避免子shell问题
+            while IFS= read -r config_file; do
+                if [ -f "$config_file" ]; then
+                    site_dir=$(dirname "$config_file")
+                    FOUND_SITES+=("$site_dir")
+                    log "发现WordPress站点: $site_dir"
+                    ((TOTAL_SITES++))
+                fi
+            done < <(find "$root" -name "wp-config.php" -type f 2>/dev/null)
+        fi
+    done
+    
+    # 如果没有找到站点，尝试使用更广泛的搜索
+    if [ ${#FOUND_SITES[@]} -eq 0 ]; then
+        log "在常规目录未找到站点，尝试更深层次搜索..."
+        # 在用户可访问的目录下搜索
+        local user_home=$(eval echo ~$(whoami))
+        while IFS= read -r config_file; do
+            if [ -f "$config_file" ]; then
+                site_dir=$(dirname "$config_file")
+                FOUND_SITES+=("$site_dir")
+                log "发现WordPress站点: $site_dir"
+                ((TOTAL_SITES++))
+            fi
+        done < <(find "$user_home" -name "wp-config.php" -type f 2>/dev/null)
+    fi
+    
+    log "共发现 $TOTAL_SITES 个WordPress站点"
+}
+
+# 从wp-config.php中提取数据库信息
+extract_db_info() {
+    local wp_config=$1
+    local prefix="wp_"
+    
+    # 提取数据库名称、用户名和密码
+    DB_NAME=$(grep -o "define.*DB_NAME.*'.*'" "$wp_config" | cut -d\' -f4)
+    DB_USER=$(grep -o "define.*DB_USER.*'.*'" "$wp_config" | cut -d\' -f4)
+    DB_PASSWORD=$(grep -o "define.*DB_PASSWORD.*'.*'" "$wp_config" | cut -d\' -f4)
+    DB_HOST=$(grep -o "define.*DB_HOST.*'.*'" "$wp_config" | cut -d\' -f4)
+    
+    # 如果没有指定主机，默认为localhost
+    [ -z "$DB_HOST" ] && DB_HOST="localhost"
+    
+    # 提取表前缀
+    local prefix_line=$(grep "\$table_prefix" "$wp_config")
+    if [[ $prefix_line =~ table_prefix[[:space:]]*=[[:space:]]*[\"\'](.*)[\"\']\; ]]; then
+        prefix="${BASH_REMATCH[1]}"
+    fi
+    
+    echo "$DB_NAME|$DB_USER|$DB_PASSWORD|$DB_HOST|$prefix"
+}
+
+# 执行MySQL查询
+execute_query() {
+    local db_name=$1
+    local db_user=$2
+    local db_password=$3
+    local db_host=$4
+    local query=$5
+    local output_file=$6
+    
+    mysql -h "$db_host" -u "$db_user" -p"$db_password" "$db_name" -e "$query" > "$output_file" 2>/dev/null
+    
+    if [ $? -ne 0 ]; then
+        log "错误: 执行SQL查询失败: $query"
+        return 1
+    fi
+    
+    return 0
+}
+
+# 获取站点URL
+get_site_url() {
+    local db_name=$1
+    local db_user=$2
+    local db_password=$3
+    local db_host=$4
+    local prefix=$5
+    
+    local query="SELECT option_value FROM ${prefix}options WHERE option_name = 'siteurl';"
+    local output_file="${TEMP_DIR}/site_url.txt"
+    
+    execute_query "$db_name" "$db_user" "$db_password" "$db_host" "$query" "$output_file"
+    
+    if [ $? -eq 0 ]; then
+        local site_url=$(tail -n 1 "$output_file")
+        echo "$site_url"
+    else
+        echo "未知"
+    fi
+}
+
+# --------------------------
+# 3. 内容扫描函数
+# --------------------------
+
+# 扫描垃圾信息
+scan_suspicious_content() {
+    local site_dir=$1
+    local db_info=$2
+    local output_dir=$3
+    
+    # 解析数据库信息
+    IFS='|' read -r DB_NAME DB_USER DB_PASSWORD DB_HOST DB_PREFIX <<< "$db_info"
+    
+    # 创建站点报告目录
+    local site_report_dir="${output_dir}/$(basename "$site_dir")"
+    mkdir -p "$site_report_dir"
+    
+    log "扫描站点: $site_dir (数据库: $DB_NAME)"
+    
+    # 获取站点URL
+    local site_url=$(get_site_url "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$DB_PREFIX")
+    log "站点URL: $site_url"
+    
+    # 创建扫描结果目录
+    mkdir -p "${site_report_dir}/results"
+    
+    # 1. 扫描可疑文章内容
+    local query1="SELECT ID, post_author, post_date, post_title, post_status, post_name, post_modified 
+                 FROM ${DB_PREFIX}posts 
+                 WHERE LOWER(post_content) LIKE '%eval(%' 
+                    OR LOWER(post_content) LIKE '%base64_%' 
+                    OR LOWER(post_content) LIKE '%gzinflate(%'
+                    OR LOWER(post_content) LIKE '%porn%'
+                    OR LOWER(post_content) LIKE '%xxx%'
+                    OR LOWER(post_content) LIKE '%adult%'
+                    OR post_content LIKE '%性爱%'
+                    OR post_content LIKE '%色情%'
+                    OR post_content LIKE '%成人%';"
+    
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query1" "${site_report_dir}/results/suspicious_posts.txt"
+    local suspicious_posts=0
+    if [ -f "${site_report_dir}/results/suspicious_posts.txt" ]; then
+        # 确保文件非空并减去标题行
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_posts.txt")
+        suspicious_posts=$((line_count > 1 ? line_count - 1 : 0))
+    fi
+    
+    # 2. 扫描可疑用户
+    local query2="SELECT user_login FROM ${DB_PREFIX}users 
+                 WHERE LOWER(user_login) LIKE '%admin%' 
+                    OR LOWER(user_login) LIKE '%test%'
+                    OR LOWER(user_login) LIKE '%temp%';"
                     
-                    # 尝试提取第一个URL
-                    local first_url=$(echo "$all_urls" | grep -o "http[s]*://[^ ]*" | head -1)
-                    if [ -n "$first_url" ]; then
-                        site_url="$first_url"
-                        log_success "从相关选项中提取到URL: $site_url"
-                    fi
-                fi
-            fi
-        fi
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query2" "${site_report_dir}/results/suspicious_users.txt"
+    local suspicious_users=0
+    if [ -f "${site_report_dir}/results/suspicious_users.txt" ]; then
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_users.txt")
+        suspicious_users=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 如果从数据库获取URL失败，尝试其他方法
-    if [ -z "$site_url" ]; then
-        log_info "从数据库获取URL失败，尝试从配置文件获取..."
-        local wp_config="${site_path}/wp-config.php"
-        if [ -f "$wp_config" ]; then
-            local defined_url=$(grep -o "define.*WP_HOME.*['\"].*['\"]" "$wp_config" | sed -E "s/.*['\"](.*)['\"]/\1/")
-            if [ -n "$defined_url" ]; then
-                site_url="$defined_url"
-                log_success "从wp-config.php的WP_HOME获取到URL: $site_url"
-            else
-                defined_url=$(grep -o "define.*WP_SITEURL.*['\"].*['\"]" "$wp_config" | sed -E "s/.*['\"](.*)['\"]/\1/")
-                if [ -n "$defined_url" ]; then
-                    site_url="$defined_url"
-                    log_success "从wp-config.php的WP_SITEURL获取到URL: $site_url"
-                fi
-            fi
-        fi
+    # 3. 扫描可疑选项值
+    local query3="SELECT option_id, option_name, autoload
+                 FROM ${DB_PREFIX}options
+                 WHERE LOWER(option_value) LIKE '%<script%' 
+                    OR LOWER(option_value) LIKE '%eval(%' 
+                    OR LOWER(option_value) LIKE '%base64_%';"
+                    
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query3" "${site_report_dir}/results/suspicious_options.txt"
+    local suspicious_options=0
+    if [ -f "${site_report_dir}/results/suspicious_options.txt" ]; then
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_options.txt")
+        suspicious_options=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 方法2: 检查index.php中的重定向
-    if [ -z "$site_url" ]; then
-        log_info "尝试从index.php获取重定向URL..."
-        local index_php="${site_path}/index.php"
-        if [ -f "$index_php" ]; then
-            local redirect_url=$(grep -o "wp_redirect.*['\"].*['\"]" "$index_php" | head -1 | sed -E "s/.*['\"](.*)['\"]/\1/")
-            if [ -n "$redirect_url" ]; then
-                site_url="$redirect_url"
-                log_success "从index.php中获取到重定向URL: $site_url"
-            fi
-        fi
+    # 4. 扫描可疑评论
+    local query4="SELECT comment_post_ID, comment_content, comment_date
+                 FROM ${DB_PREFIX}comments
+                 WHERE LOWER(comment_content) LIKE '%<script%' 
+                    OR LOWER(comment_content) LIKE '%iframe%'
+                    OR LOWER(comment_content) LIKE '%porn%'
+                    OR LOWER(comment_content) LIKE '%xxx%'
+                    OR LOWER(comment_content) LIKE '%telegram%'
+                    OR LOWER(comment_content) LIKE '%adult%';"
+                    
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query4" "${site_report_dir}/results/suspicious_comments.txt"
+    local suspicious_comments=0
+    if [ -f "${site_report_dir}/results/suspicious_comments.txt" ]; then
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_comments.txt")
+        suspicious_comments=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 方法3: 从.htaccess获取重定向规则
-    if [ -z "$site_url" ]; then
-        log_info "尝试从.htaccess获取URL..."
-        local htaccess="${site_path}/.htaccess"
-        if [ -f "$htaccess" ]; then
-            local htaccess_url=$(grep -o "RewriteRule.*/index\.php \[R=301,L\]" "$htaccess" | sed -E "s/.*http(s)?:\/\/([^\/]+).*/http\1:\/\/\2/")
-            if [ -n "$htaccess_url" ]; then
-                site_url="$htaccess_url"
-                log_success "从.htaccess获取到URL: $site_url"
-            fi
-        fi
+    # 5. 扫描可疑元数据
+    local query5="SELECT meta_id, post_id, meta_key, meta_value
+                 FROM ${DB_PREFIX}postmeta 
+                 WHERE LOWER(meta_value) LIKE '%<script%' 
+                    OR LOWER(meta_value) LIKE '%eval(%' 
+                    OR LOWER(meta_value) LIKE '%base64_%'
+                    OR LOWER(meta_value) LIKE '%iframe%';"
+                    
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query5" "${site_report_dir}/results/suspicious_postmeta.txt"
+    local suspicious_postmeta=0
+    if [ -f "${site_report_dir}/results/suspicious_postmeta.txt" ]; then
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_postmeta.txt")
+        suspicious_postmeta=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 方法4: 如果还是获取不到，从目录名猜测
-    if [ -z "$site_url" ]; then
-        # 获取目录名作为可能的域名名称
-        local dir_name=$(basename "$site_path")
-        if [[ "$dir_name" =~ [a-zA-Z0-9]+ ]]; then
-            # 假设域名是目录名加.com
-            site_url="http://${dir_name}.com"
-            log_warning "无法从任何途径获取站点URL，使用目录名猜测: $site_url"
-        else
-            # 最后的后备选项
-            site_url="未知URL"
-            log_error "无法获取站点URL，设置为未知URL"
-        fi
+    # 6. 检查可疑日期文章
+    local query6="SELECT p.ID, p.post_author, p.post_date, p.post_title, p.post_status, 
+                       p.post_name, p.post_modified, u.user_login
+                 FROM ${DB_PREFIX}posts p
+                 JOIN ${DB_PREFIX}users u ON p.post_author = u.ID
+                 WHERE p.post_date > NOW() 
+                    OR p.post_modified > NOW();"
+                    
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$query6" "${site_report_dir}/results/suspicious_dates.txt"
+    local suspicious_dates=0
+    if [ -f "${site_report_dir}/results/suspicious_dates.txt" ]; then
+        local line_count=$(wc -l < "${site_report_dir}/results/suspicious_dates.txt")
+        suspicious_dates=$((line_count > 1 ? line_count - 1 : 0))
     fi
     
-    # 从URL中提取域名
-    if [ "$site_url" != "未知URL" ]; then
-        domain_name=$(echo "$site_url" | sed -E 's/https?:\/\///' | sed -E 's/\/.*//')
-        log_info "从URL提取出域名: $domain_name"
-    else
-        domain_name="未知域名"
+    # 计算总可疑项目数
+    local total_suspicious=$((suspicious_posts + suspicious_users + suspicious_options + suspicious_comments + suspicious_postmeta + suspicious_dates))
+    ((TOTAL_SUSPICIOUS += total_suspicious))
+    
+    # 获取数据库大小
+    local db_size_query="SELECT ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) 
+                         FROM information_schema.tables 
+                         WHERE table_schema = '$DB_NAME';"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$db_size_query" "${site_report_dir}/results/db_size.txt"
+    local db_size="0.00"
+    if [ -f "${site_report_dir}/results/db_size.txt" ] && [ -s "${site_report_dir}/results/db_size.txt" ]; then
+        db_size=$(tail -n 1 "${site_report_dir}/results/db_size.txt")
     fi
     
-    # 返回结果
-    echo "$site_url|$domain_name"
+    # 获取表数量
+    local table_count_query="SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '$DB_NAME';"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$table_count_query" "${site_report_dir}/results/table_count.txt"
+    local table_count="0"
+    if [ -f "${site_report_dir}/results/table_count.txt" ] && [ -s "${site_report_dir}/results/table_count.txt" ]; then
+        table_count=$(tail -n 1 "${site_report_dir}/results/table_count.txt")
+    fi
+    
+    # 获取文章数量
+    local post_count_query="SELECT COUNT(*) FROM ${DB_PREFIX}posts WHERE post_type = 'post' AND post_status = 'publish';"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$post_count_query" "${site_report_dir}/results/post_count.txt"
+    local post_count="0"
+    if [ -f "${site_report_dir}/results/post_count.txt" ] && [ -s "${site_report_dir}/results/post_count.txt" ]; then
+        post_count=$(tail -n 1 "${site_report_dir}/results/post_count.txt")
+    fi
+    
+    # 获取用户数量
+    local user_count_query="SELECT COUNT(*) FROM ${DB_PREFIX}users;"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$user_count_query" "${site_report_dir}/results/user_count.txt"
+    local user_count="0"
+    if [ -f "${site_report_dir}/results/user_count.txt" ] && [ -s "${site_report_dir}/results/user_count.txt" ]; then
+        user_count=$(tail -n 1 "${site_report_dir}/results/user_count.txt")
+    fi
+    
+    # 获取评论数量
+    local comment_count_query="SELECT COUNT(*) FROM ${DB_PREFIX}comments WHERE comment_approved = '1';"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$comment_count_query" "${site_report_dir}/results/comment_count.txt"
+    local comment_count="0"
+    if [ -f "${site_report_dir}/results/comment_count.txt" ] && [ -s "${site_report_dir}/results/comment_count.txt" ]; then
+        comment_count=$(tail -n 1 "${site_report_dir}/results/comment_count.txt")
+    fi
+    
+    # 获取WordPress版本
+    local wp_version_query="SELECT option_value FROM ${DB_PREFIX}options WHERE option_name = 'version';"
+    execute_query "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$wp_version_query" "${site_report_dir}/results/wp_version.txt"
+    local wp_version="未知"
+    if [ -f "${site_report_dir}/results/wp_version.txt" ] && [ -s "${site_report_dir}/results/wp_version.txt" ]; then
+        wp_version=$(tail -n 1 "${site_report_dir}/results/wp_version.txt")
+    fi
+    
+    # 生成站点报告HTML
+    log "生成站点报告: ${site_report_dir}/report.html"
+    
+    # 保存站点信息用于总报告
+    echo "${site_dir}|${site_url}|${DB_NAME}|${db_size}|${table_count}|${post_count}|${user_count}|${comment_count}|${wp_version}|${total_suspicious}" >> "${TEMP_DIR}/all_sites_info.txt"
+    
+    # 创建单站点报告
+    create_site_report "$site_dir" "$site_report_dir" "$site_url" "$DB_NAME" "$db_size" "$table_count" "$post_count" "$user_count" "$comment_count" "$wp_version" "$total_suspicious" "$suspicious_posts" "$suspicious_users" "$suspicious_options" "$suspicious_comments" "$suspicious_postmeta" "$suspicious_dates"
+    
+    log "站点扫描完成: $site_dir (发现可疑项: $total_suspicious)"
+    
+    # 创建临时目录保存站点可疑内容计数
+    mkdir -p "${TEMP_DIR}/sites/${site_basename}"
+    echo "$suspicious_posts" > "${TEMP_DIR}/sites/${site_basename}/suspicious_posts_count.txt"
+    echo "$suspicious_users" > "${TEMP_DIR}/sites/${site_basename}/suspicious_users_count.txt"
+    echo "$suspicious_options" > "${TEMP_DIR}/sites/${site_basename}/suspicious_options_count.txt"
+    echo "$suspicious_comments" > "${TEMP_DIR}/sites/${site_basename}/suspicious_comments_count.txt"
+    echo "$suspicious_postmeta" > "${TEMP_DIR}/sites/${site_basename}/suspicious_postmeta_count.txt"
+    echo "$suspicious_dates" > "${TEMP_DIR}/sites/${site_basename}/suspicious_dates_count.txt"
 }
 
-# 执行MySQL查询 - 带日志输出
-run_mysql_query() {
-    local query="$1"
-    local result=""
-    
-    # 输出查询信息用于调试
-    log_debug "执行SQL查询: ${CYAN}$query${NC}"
-    log_debug "连接信息: 主机=${CYAN}${DB_HOST}${NC}, 用户=${CYAN}${DB_USER}${NC}, 数据库=${CYAN}${DB_NAME}${NC}"
-    
-    # 分离标准输出和错误输出
-    if [ -z "$DB_PASS" ]; then
-        result=$(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "$query" 2>mysql_errors.tmp)
-    else
-        result=$(mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -e "$query" 2>mysql_errors.tmp)
-    fi
-    
-    # 处理错误但不影响结果
-    local error_msg=$(cat mysql_errors.tmp)
-    rm -f mysql_errors.tmp
-    
-    # 检查查询是否成功
-    if [[ $? -ne 0 ]]; then
-        if [ -n "$error_msg" ]; then
-            log_error "MySQL查询失败: $(echo "$error_msg" | grep -v 'Warning.*password')"
-        else
-            log_error "MySQL查询失败"
-        fi
-        return 1
-    fi
-    
-    # 仅针对控制台报告结果统计
-    if [ -n "$result" ]; then
-        log_success "查询成功，返回 $(echo "$result" | wc -l) 行结果"
-        if [ "$LOG_LEVEL" -ge 2 ]; then
-            log_debug "结果示例: ${CYAN}$(echo "$result" | head -n 1)${NC}"
-        fi
-    else
-        log_warning "查询成功但返回空结果"
-    fi
-    
-    # 返回原始结果
-    echo "$result"
-}
+# --------------------------
+# 4. 报告生成函数
+# --------------------------
 
-# 执行MySQL查询 - 无日志版本
-run_mysql_query_silent() {
-    local query="$1"
-    local result=""
+# 创建HTML模板
+create_html_template() {
+    local template_dir=$1
     
-    # 静默执行查询，仅返回结果
-    if [ -z "$DB_PASS" ]; then
-        result=$(mysql -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" -N -e "$query" 2>/dev/null)
-    else
-        result=$(mysql -h "$DB_HOST" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -N -e "$query" 2>/dev/null)
-    fi
+    # 确保目录存在
+    mkdir -p "$template_dir"
     
-    # 检查是否成功，但不输出任何调试信息
-    if [[ $? -ne 0 ]]; then
-        return 1
-    fi
-    
-    echo "$result"
-}
-
-# 解析WordPress配置文件
-parse_wp_config() {
-    local wp_config="$1"
-    
-    # 检查文件是否存在
-    if [ ! -f "$wp_config" ]; then
-        log_error "WordPress配置文件不存在: $wp_config"
-        return 1
-    fi
-    
-    log_info "正在解析 WordPress 配置文件: $wp_config"
-    
-    # 提取数据库名称
-    DB_NAME=$(grep -o "define.*DB_NAME.*'.*'" "$wp_config" | sed -E "s/.*'(.*)'.*/\1/")
-    if [ -z "$DB_NAME" ]; then
-        log_error "无法从配置文件中提取数据库名称"
-        return 1
-    fi
-    
-    # 提取数据库用户
-    DB_USER=$(grep -o "define.*DB_USER.*'.*'" "$wp_config" | sed -E "s/.*'(.*)'.*/\1/")
-    if [ -z "$DB_USER" ]; then
-        log_error "无法从配置文件中提取数据库用户"
-        return 1
-    fi
-    
-    # 提取数据库密码
-    DB_PASS=$(grep -o "define.*DB_PASSWORD.*'.*'" "$wp_config" | sed -E "s/.*'(.*)'.*/\1/")
-    
-    # 提取数据库主机
-    DB_HOST=$(grep -o "define.*DB_HOST.*'.*'" "$wp_config" | sed -E "s/.*'(.*)'.*/\1/")
-    if [ -z "$DB_HOST" ]; then
-        log_warning "未指定数据库主机，使用默认值: localhost"
-        DB_HOST="localhost"
-    fi
-    
-    # 提取表前缀 - 修复解析方式
-    local prefix_line=$(grep '$table_prefix' "$wp_config")
-    if [ -n "$prefix_line" ]; then
-        DB_PREFIX=$(echo "$prefix_line" | sed -E "s/.*'(.*)'.*/\1/")
-        # 如果提取失败，使用默认值
-        if [ -z "$DB_PREFIX" ]; then
-            log_warning "无法解析表前缀，使用默认值: wp_"
-            DB_PREFIX="wp_"
-        fi
-    else
-        log_warning "未找到表前缀设置，使用默认值: wp_"
-        DB_PREFIX="wp_"
-    fi
-    
-    # 存储当前站点的数据库连接信息
-    DB_CONNECTIONS["$wp_config"]="$DB_NAME:$DB_USER:$DB_PASS:$DB_HOST:$DB_PREFIX"
-    
-    log_success "配置解析成功: 数据库=${CYAN}${DB_NAME}${NC}, 表前缀=${CYAN}${DB_PREFIX}${NC}"
-    return 0
-}
-
-# 构建关键词搜索SQL查询
-build_search_query() {
-    local table="$1"
-    local column="$2"
-    local keywords=("${@:3}")
-    local query=""
-    local conditions=""
-    
-    for keyword in "${keywords[@]}"; do
-        if [ -n "$conditions" ]; then
-            conditions+=" OR "
-        fi
-        conditions+="${column} LIKE '%${keyword}%'"
-    done
-    
-    query="SELECT * FROM ${table} WHERE (${conditions}) LIMIT 100;"
-    echo "$query"
-}
-
-# 扫描数据库表中的违规内容
-scan_table() {
-    local table="$1"
-    local column="$2"
-    local description="$3"
-    local report_file="$4"
-    local site_url="$5"
-    local violations_found_table=0
-    
-    # 根据不同表类型确定额外字段，便于更好地显示结果上下文
-    local context_columns=""
-    local content_column="$column"
-    
-    # 为不同表设置不同的额外显示字段，提供更多上下文
-    case "$table" in
-        *posts)
-            # 对于文章表，显示ID、标题和状态
-            context_columns="ID, post_title, post_status"
-            ;;
-        *postmeta)
-            # 对于文章元数据表，显示元数据ID、文章ID和元数据键名
-            context_columns="meta_id, post_id, meta_key"
-            ;;
-        *options)
-            # 对于选项表，显示选项ID和选项名
-            context_columns="option_id, option_name"
-            ;;
-        *comments)
-            # 对于评论表，显示评论ID、评论者和评论状态
-            context_columns="comment_ID, comment_author, comment_approved"
-            ;;
-        *usermeta)
-            # 对于用户元数据表，显示元数据ID、用户ID和元数据键名
-            context_columns="umeta_id, user_id, meta_key"
-            ;;
-        *users)
-            # 对于用户表，显示用户ID、登录名和昵称
-            context_columns="ID, user_login, user_nicename"
-            ;;
-        *)
-            # 默认情况下不添加额外字段
-            context_columns=""
-            ;;
-    esac
-    
-    # 扫描色情内容
-    local porn_query=""
-    if [ -n "$context_columns" ]; then
-        porn_query="SELECT $context_columns, SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    else
-        porn_query="SELECT SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    fi
-    
-    local conditions=""
-    for keyword in "${PORN_KEYWORDS[@]}"; do
-        if [ -n "$conditions" ]; then
-            conditions+=" OR "
-        fi
-        conditions+="$content_column LIKE '%${keyword}%'"
-    done
-    
-    porn_query+="$conditions) LIMIT 20;"
-    local porn_results=$(run_mysql_query "$porn_query")
-    
-    # 扫描赌博内容（类似方式）
-    local gamble_query=""
-    if [ -n "$context_columns" ]; then
-        gamble_query="SELECT $context_columns, SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    else
-        gamble_query="SELECT SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    fi
-    
-    conditions=""
-    for keyword in "${GAMBLE_KEYWORDS[@]}"; do
-        if [ -n "$conditions" ]; then
-            conditions+=" OR "
-        fi
-        conditions+="$content_column LIKE '%${keyword}%'"
-    done
-    
-    gamble_query+="$conditions) LIMIT 20;"
-    local gamble_results=$(run_mysql_query "$gamble_query")
-    
-    # 扫描广告内容（类似方式）
-    local ad_query=""
-    if [ -n "$context_columns" ]; then
-        ad_query="SELECT $context_columns, SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    else
-        ad_query="SELECT SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    fi
-    
-    conditions=""
-    for keyword in "${AD_KEYWORDS[@]}"; do
-        if [ -n "$conditions" ]; then
-            conditions+=" OR "
-        fi
-        conditions+="$content_column LIKE '%${keyword}%'"
-    done
-    
-    ad_query+="$conditions) LIMIT 20;"
-    local ad_results=$(run_mysql_query "$ad_query")
-    
-    # 扫描可疑域名
-    local domain_query=""
-    if [ -n "$context_columns" ]; then
-        domain_query="SELECT $context_columns, SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    else
-        domain_query="SELECT SUBSTRING($content_column, 1, 200) as content_preview FROM $table WHERE ("
-    fi
-    
-    conditions=""
-    for domain in "${SUSPICIOUS_DOMAINS[@]}"; do
-        if [ -n "$conditions" ]; then
-            conditions+=" OR "
-        fi
-        conditions+="$content_column LIKE '%${domain}%'"
-    done
-    
-    domain_query+="$conditions) LIMIT 20;"
-    local domain_results=$(run_mysql_query "$domain_query")
-    
-    # 处理结果，避免乱码
-    if [ -n "$porn_results" ]; then
-        echo -e "\n${RED}${BOLD}=== 疑似色情内容 (${description}) ===${NC}" >> "$report_file"
-        echo -e "表: $table, 字段: $column\n" >> "$report_file"
-        
-        # 格式化结果，每行一个记录，以避免乱码
-        echo "$porn_results" | while IFS=$'\t' read -r line; do
-            echo -e "- ${line}" | sed 's/\t/ | /g' >> "$report_file"
-        done
-        
-        ((violations_found_table+=1))
-    fi
-    
-    if [ -n "$gamble_results" ]; then
-        echo -e "\n${YELLOW}${BOLD}=== 疑似赌博内容 (${description}) ===${NC}" >> "$report_file"
-        echo -e "表: $table, 字段: $column\n" >> "$report_file"
-        
-        # 格式化结果，每行一个记录
-        echo "$gamble_results" | while IFS=$'\t' read -r line; do
-            echo -e "- ${line}" | sed 's/\t/ | /g' >> "$report_file"
-        done
-        
-        ((violations_found_table+=1))
-    fi
-    
-    if [ -n "$ad_results" ]; then
-        echo -e "\n${BLUE}${BOLD}=== 疑似广告内容 (${description}) ===${NC}" >> "$report_file"
-        echo -e "表: $table, 字段: $column\n" >> "$report_file"
-        
-        # 格式化结果，每行一个记录
-        echo "$ad_results" | while IFS=$'\t' read -r line; do
-            echo -e "- ${line}" | sed 's/\t/ | /g' >> "$report_file"
-        done
-        
-        ((violations_found_table+=1))
-    fi
-    
-    if [ -n "$domain_results" ]; then
-        echo -e "\n${PURPLE}${BOLD}=== 可疑域名 (${description}) ===${NC}" >> "$report_file"
-        echo -e "表: $table, 字段: $column\n" >> "$report_file"
-        
-        # 格式化结果，每行一个记录
-        echo "$domain_results" | while IFS=$'\t' read -r line; do
-            echo -e "- ${line}" | sed 's/\t/ | /g' >> "$report_file"
-        done
-        
-        ((violations_found_table+=1))
-    fi
-    
-    # 返回发现的违规数量
-    echo $violations_found_table
-    return 0
-}
-
-# 扫描单个WordPress站点
-scan_site() {
-    local site_path="$1"
-    local site_output_dir="${OUTPUT_DIR}/$(basename "$site_path")"
-    local wp_config="${site_path}/wp-config.php"
-    local report_file="${site_output_dir}/scan_report.txt"
-    local violations_found=0
-    local site_url=""
-    local domain_name=""
-    
-    mkdir -p "$site_output_dir"
-    
-    print_separator
-    echo -e "${CYAN}${BOLD}[扫描站点]${NC} ${UNDERLINE}$site_path${NC}"
-    print_separator
-    
-    echo -e "${BOLD}===== WordPress数据库内容扫描报告 =====${NC}" > "$report_file"
-    echo "扫描时间: $(date '+%Y-%m-%d %H:%M:%S')" >> "$report_file"
-    echo "站点路径: $site_path" >> "$report_file"
-    echo "" >> "$report_file"
-    
-    # 解析WordPress配置文件
-    if ! parse_wp_config "$wp_config"; then
-        echo "错误: 无法解析WordPress配置文件: $wp_config" >> "$report_file"
-        log_error "无法解析WordPress配置文件: $wp_config"
-        return 1
-    fi
-    
-    echo "数据库名称: $DB_NAME" >> "$report_file"
-    echo "数据库主机: $DB_HOST" >> "$report_file"
-    echo "表前缀: $DB_PREFIX" >> "$report_file"
-
-    # 显示数据库连接信息
-    log_info "数据库信息: 名称=${CYAN}${DB_NAME}${NC}, 主机=${CYAN}${DB_HOST}${NC}, 前缀=${CYAN}${DB_PREFIX}${NC}"
-    
-    # 获取站点URL - 通过多种方式获取
-    log_info "正在获取站点URL..."
-    
-    # 获取站点URL和域名
-    local site_info=$(get_site_url_clean "$site_path" "$DB_PREFIX")
-    site_url=$(echo "$site_info" | cut -d'|' -f1)
-    domain_name=$(echo "$site_info" | cut -d'|' -f2)
-    
-    if [ -n "$site_url" ] && [ "$site_url" != "未知URL" ]; then
-        log_success "获取到站点URL: ${GREEN}$site_url${NC}"
-        echo "站点URL: $site_url" >> "$report_file"
-        echo "站点域名: $domain_name" >> "$report_file"
-    else
-        log_warning "无法获取站点URL，使用目录名作为标识 (原因: URL不在数据库或配置文件中)"
-        site_url="未知URL"
-        domain_name=$(basename "$site_path")
-        echo "站点URL: 未知" >> "$report_file"
-        echo "站点域名: $domain_name (基于目录名)" >> "$report_file"
-    fi
-    
-    echo "" >> "$report_file"
-    
-    # 保存站点URL到全局变量 - 在扫描开始时就保存
-    SITE_URLS["$site_path"]="$site_url"
-    SITE_NAMES["$site_path"]="$domain_name"
-    
-    # 要扫描的表和列
-    declare -A tables
-    tables["${DB_PREFIX}posts:post_content"]="文章内容"
-    tables["${DB_PREFIX}posts:post_title"]="文章标题"
-    tables["${DB_PREFIX}postmeta:meta_value"]="文章元数据"
-    tables["${DB_PREFIX}options:option_value"]="站点选项"
-    tables["${DB_PREFIX}comments:comment_content"]="评论内容"
-    
-    # 计算总表数
-    local total_tables=${#tables[@]}
-    local current_table=0
-    
-    log_info "开始扫描数据库表... (数据库: ${CYAN}${DB_NAME}${NC})"
-    echo ""  # 添加空行，为进度条留出空间
-    
-    # 扫描各个表
-    for table_col in "${!tables[@]}"; do
-        IFS=':' read -r table column <<< "$table_col"
-        description=${tables["$table_col"]}
-        
-        ((current_table++))
-        
-        # 显示当前正在扫描的表信息
-        log_info "正在扫描表: ${CYAN}${table}${NC} (字段: ${YELLOW}${column}${NC})"
-        
-        # 在同一行更新进度条
-        echo -ne "\r"  # 回到行首
-        show_progress $current_table $total_tables
-        
-        local found=$(scan_table "$table" "$column" "$description" "$report_file" "$site_url")
-        
-        # 显示表扫描结果
-        if [ "$found" -gt 0 ]; then
-            log_warning "表 ${CYAN}${table}${NC} 中发现 ${RED}${found}${NC} 处可能的违规内容"
-        else
-            log_success "表 ${CYAN}${table}${NC} 未发现违规内容 ${GREEN}✓${NC}"
-        fi
-        
-        violations_found=$((violations_found + found))
-    done
-    
-    echo ""  # 换行，确保进度条之后有换行
-    
-    # 扫描总结
-    if [ $violations_found -gt 0 ]; then
-        echo "" >> "$report_file"
-        echo -e "${BOLD}===== 扫描总结 =====${NC}" >> "$report_file"
-        echo "发现 $violations_found 处可能的违规内容，请查看上述详细信息。" >> "$report_file"
-        echo "数据库: $DB_NAME, 前缀: $DB_PREFIX" >> "$report_file"
-        if [ -n "$site_url" ] && [ "$site_url" != "未知URL" ]; then
-            log_warning "站点 ${CYAN}$domain_name${NC} (${UNDERLINE}$site_url${NC}) 发现 ${RED}$violations_found${NC} 处可能的违规内容"
-        else
-            log_warning "站点 ${CYAN}$domain_name${NC} (数据库: ${CYAN}${DB_NAME}${NC}) 发现 ${RED}$violations_found${NC} 处可能的违规内容"
-        fi
-        print_separator
-        log_info "异常表:"
-        for table_col in "${!tables[@]}"; do
-            IFS=':' read -r table column <<< "$table_col"
-            description=${tables["$table_col"]}
-            # 检查文件中是否有与此表相关的违规内容
-            if grep -q "$description" "$report_file"; then
-                log_warning "  - ${RED}✗${NC} ${CYAN}${table}${NC}"
-            fi
-        done
-    else
-        echo "" >> "$report_file"
-        echo -e "${BOLD}===== 扫描总结 =====${NC}" >> "$report_file"
-        echo "未发现可疑违规内容。" >> "$report_file"
-        echo "数据库: $DB_NAME, 前缀: $DB_PREFIX" >> "$report_file"
-        if [ -n "$site_url" ] && [ "$site_url" != "未知URL" ]; then
-            log_success "站点 ${CYAN}$domain_name${NC} (${UNDERLINE}$site_url${NC}) 未发现可疑违规内容"
-        else
-            log_success "站点 ${CYAN}$domain_name${NC} (数据库: ${CYAN}${DB_NAME}${NC}) 未发现可疑违规内容"
-        fi
-        print_separator
-        log_info "扫描的表 ${GREEN}(全部正常)${NC}:"
-        for table_col in "${!tables[@]}"; do
-            IFS=':' read -r table column <<< "$table_col"
-            log_success "  - ${GREEN}✓${NC} ${CYAN}${table}${NC}"
-        done
-    fi
-    
-    return 0
-}
-
-# 添加详细的站点报告到HTML
-add_site_details_to_html() {
-    local site="$1"
-    local summary_file="$2"
-    local site_class="$3"
-    
-    local site_name=$(basename "$site")
-    local site_report="${OUTPUT_DIR}/${site_name}/scan_report.txt"
-    local site_url="${SITE_URLS[$site]}"
-    local domain="${SITE_NAMES[$site]}"
-    
-    # 从报告文件中获取数据库信息，而不是使用全局变量
-    local db_name=$(grep "数据库名称:" "$site_report" | cut -d: -f2 | tr -d ' ')
-    local db_prefix=$(grep "表前缀:" "$site_report" | cut -d: -f2 | tr -d ' ')
-    
-    if [ -f "$site_report" ]; then
-        # 添加站点详情
-        cat >> "$summary_file" << EOF
-        <div class="site ${site_class}">
-            <h3>站点: ${site_name}</h3>
-            <div class="site-url">域名: ${domain:-未知}</div>
-            <div class="site-url">URL: ${site_url:+<a href="${site_url}" target="_blank">${site_url}</a>}</div>
-            <div class="site-db">数据库: ${db_name}, 表前缀: ${db_prefix}</div>
-EOF
-        
-        # 如果有违规内容，添加详细信息
-        local porn_sections=$(grep -n -A100 "=== 疑似色情内容" "$site_report" | grep -m1 -B100 "^$" || grep -n -A100 "=== 疑似色情内容" "$site_report")
-        local gamble_sections=$(grep -n -A100 "=== 疑似赌博内容" "$site_report" | grep -m1 -B100 "^$" || grep -n -A100 "=== 疑似赌博内容" "$site_report")
-        local ad_sections=$(grep -n -A100 "=== 疑似广告内容" "$site_report" | grep -m1 -B100 "^$" || grep -n -A100 "=== 疑似广告内容" "$site_report")
-        local domain_sections=$(grep -n -A100 "=== 可疑域名" "$site_report" | grep -m1 -B100 "^$" || grep -n -A100 "=== 可疑域名" "$site_report")
-        
-        if [ -n "$porn_sections" ] || [ -n "$gamble_sections" ] || [ -n "$ad_sections" ] || [ -n "$domain_sections" ]; then
-            cat >> "$summary_file" << EOF
-            <h4>违规内容详情:</h4>
-            <div class="violations-container">
-EOF
-            
-            # 添加色情内容
-            if [ -n "$porn_sections" ]; then
-                cat >> "$summary_file" << EOF
-                <div class="violation-category porn">
-                    <h5>疑似色情内容</h5>
-                    <div class="violation-items">
-EOF
-                echo "$porn_sections" | grep -v "===" | grep -v "^--$" | while read -r line; do
-                    # 过滤掉行号和其他非内容部分
-                    content=$(echo "$line" | sed 's/^[0-9]*[-:]//' | sed 's/\t/ | /g')
-                    if [ -n "$content" ]; then
-                        echo "<div class='violation-item'>${content}</div>" >> "$summary_file"
-                    fi
-                done
-                
-                cat >> "$summary_file" << EOF
-                    </div>
-                </div>
-EOF
-            fi
-            
-            # 添加赌博内容
-            if [ -n "$gamble_sections" ]; then
-                cat >> "$summary_file" << EOF
-                <div class="violation-category gamble">
-                    <h5>疑似赌博内容</h5>
-                    <div class="violation-items">
-EOF
-                echo "$gamble_sections" | grep -v "===" | grep -v "^--$" | while read -r line; do
-                    content=$(echo "$line" | sed 's/^[0-9]*[-:]//' | sed 's/\t/ | /g')
-                    if [ -n "$content" ]; then
-                        echo "<div class='violation-item'>${content}</div>" >> "$summary_file"
-                    fi
-                done
-                
-                cat >> "$summary_file" << EOF
-                    </div>
-                </div>
-EOF
-            fi
-            
-            # 添加广告内容
-            if [ -n "$ad_sections" ]; then
-                cat >> "$summary_file" << EOF
-                <div class="violation-category ad">
-                    <h5>疑似广告内容</h5>
-                    <div class="violation-items">
-EOF
-                echo "$ad_sections" | grep -v "===" | grep -v "^--$" | while read -r line; do
-                    content=$(echo "$line" | sed 's/^[0-9]*[-:]//' | sed 's/\t/ | /g')
-                    if [ -n "$content" ]; then
-                        echo "<div class='violation-item'>${content}</div>" >> "$summary_file"
-                    fi
-                done
-                
-                cat >> "$summary_file" << EOF
-                    </div>
-                </div>
-EOF
-            fi
-            
-            # 添加可疑域名
-            if [ -n "$domain_sections" ]; then
-                cat >> "$summary_file" << EOF
-                <div class="violation-category domain">
-                    <h5>可疑域名</h5>
-                    <div class="violation-items">
-EOF
-                echo "$domain_sections" | grep -v "===" | grep -v "^--$" | while read -r line; do
-                    content=$(echo "$line" | sed 's/^[0-9]*[-:]//' | sed 's/\t/ | /g')
-                    if [ -n "$content" ]; then
-                        echo "<div class='violation-item'>${content}</div>" >> "$summary_file"
-                    fi
-                done
-                
-                cat >> "$summary_file" << EOF
-                    </div>
-                </div>
-EOF
-            fi
-            
-            cat >> "$summary_file" << EOF
-            </div>
-EOF
-        else
-            cat >> "$summary_file" << EOF
-            <p class="clean-notice">该站点未发现违规内容 ✓</p>
-EOF
-        fi
-        
-        # 关闭站点div
-        cat >> "$summary_file" << EOF
-        </div>
-EOF
-    fi
-}
-
-# 创建HTML格式报告
-create_html_report() {
-    local summary_file="${OUTPUT_DIR}/scan_report.html"
-    
-    # 创建HTML报告头部
-    cat > "$summary_file" << EOF
+    # 创建简化版报告模板
+    cat > "${template_dir}/report_template.html" << 'EOF'
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WordPress数据库内容扫描报告</title>
+    <title>WordPress数据库扫描报告</title>
     <style>
+        :root {
+            --primary-color: #0073aa;
+            --secondary-color: #005177;
+            --accent-color: #d54e21;
+            --light-gray: #f5f5f5;
+            --dark-gray: #333;
+            --success-color: #46b450;
+            --warning-color: #ffb900;
+            --danger-color: #dc3232;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Arial', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             line-height: 1.6;
-            margin: 0;
-            padding: 20px;
             color: #333;
-            background-color: #f5f5f5;
+            background-color: #f1f1f1;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        .container { width: 90%; max-width: 1200px; margin: 2rem auto; }
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 5px 5px 0 0;
+        }
+        .report-meta {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--secondary-color);
+            color: white;
+            padding: 0.5rem 1.5rem;
+            font-size: 0.9rem;
+        }
+        .content {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0 0 5px 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+        h2 { 
+            font-size: 1.4rem; 
+            margin: 1.5rem 0 1rem; 
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+            color: var(--primary-color);
+        }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        .card {
+            background-color: white;
             border-radius: 5px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-top: 3px solid var(--primary-color);
         }
-        h1, h2, h3, h4, h5 {
-            color: #2c3e50;
-            margin-top: 1em;
-            margin-bottom: 0.5em;
+        .card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--dark-gray);
         }
-        h1 {
-            text-align: center;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #eee;
-        }
-        .summary {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .site {
-            margin-bottom: 30px;
-            padding: 15px;
-            border-left: 4px solid #3498db;
-            background-color: #ecf0f1;
-        }
-        .clean {
-            border-left-color: #2ecc71;
-        }
-        .warning {
-            border-left-color: #e74c3c;
-        }
-        .violation-category {
-            background-color: #fdedec;
-            padding: 10px 15px;
-            margin: 10px 0;
-            border-radius: 4px;
-        }
-        .violation-item {
-            padding: 5px 10px;
-            margin: 5px 0;
-            background-color: rgba(255,255,255,0.7);
-            border-radius: 3px;
-            word-break: break-all;
-            line-height: 1.4;
-        }
-        .porn { 
-            border-left: 4px solid #e74c3c; 
-            background-color: rgba(231, 76, 60, 0.1);
-        }
-        .gamble { 
-            border-left: 4px solid #f39c12; 
-            background-color: rgba(243, 156, 18, 0.1);
-        }
-        .ad { 
-            border-left: 4px solid #3498db; 
-            background-color: rgba(52, 152, 219, 0.1);
-        }
-        .domain { 
-            border-left: 4px solid #9b59b6; 
-            background-color: rgba(155, 89, 182, 0.1);
-        }
-        .timestamp {
-            color: #7f8c8d;
-            font-size: 0.9em;
-        }
-        footer {
-            text-align: center;
-            margin-top: 30px;
-            color: #7f8c8d;
-            font-size: 0.9em;
-        }
-        .site-url, .site-db {
-            margin: 5px 0;
-            color: #2980b9;
-        }
-        .site-url a {
-            color: #2980b9;
-            text-decoration: none;
+        .card p.value {
+            font-size: 2rem;
             font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
         }
-        .site-url a:hover {
-            text-decoration: underline;
-        }
-        .table-container {
-            overflow-x: auto;
-        }
+        .card.warning { border-top-color: var(--warning-color); }
+        .card.warning p.value { color: var(--warning-color); }
+        .card.danger { border-top-color: var(--danger-color); }
+        .card.danger p.value { color: var(--danger-color); }
+        .card.success { border-top-color: var(--success-color); }
+        .card.success p.value { color: var(--success-color); }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
+            margin: 1.5rem 0;
         }
+        thead { background-color: var(--light-gray); }
         th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
+            padding: 0.75rem;
             text-align: left;
+            border-bottom: 1px solid #ddd;
         }
-        th {
-            background-color: #f2f2f2;
-            color: #333;
+        th { font-weight: 600; }
+        tr:hover { background-color: rgba(0, 115, 170, 0.05); }
+        tr.suspicious { background-color: rgba(220, 50, 50, 0.1); }
+        tr.suspicious td { border-left: 3px solid var(--danger-color); }
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            padding: 1rem;
+            color: #777;
+            font-size: 0.9rem;
         }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
+        .pagination-controls {
+            display: flex;
+            justify-content: center;
+            margin: 1.5rem 0;
+            gap: 0.5rem;
         }
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        .clean-notice {
-            color: #2ecc71;
-            font-weight: bold;
-            padding: 10px;
-            background-color: rgba(46, 204, 113, 0.1);
-            border-radius: 4px;
-        }
-        .violations-container {
-            max-height: 500px;
-            overflow-y: auto;
+        .pagination-controls button {
+            padding: 0.5rem 1rem;
+            background-color: white;
             border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background-color 0.2s;
         }
-        @media print {
-            .violations-container {
-                max-height: none;
-                overflow-y: visible;
-            }
+        .pagination-controls button:hover { background-color: var(--light-gray); }
+        .pagination-controls button.active {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        .pagination-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .search-box {
+            margin: 1rem 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+        .search-box input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        .search-box button {
+            padding: 0.5rem 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .collapsible { margin-top: 1rem; }
+        .collapsible-header {
+            background-color: var(--light-gray);
+            padding: 0.75rem;
+            border-radius: 3px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .collapsible-header::after { content: "+"; font-size: 1.2rem; font-weight: bold; }
+        .collapsible-header.active::after { content: "-"; }
+        .collapsible-content {
+            display: none;
+            padding: 1rem;
+            border: 1px solid #ddd;
+            border-top: none;
+            border-radius: 0 0 3px 3px;
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 折叠面板功能
+            const collapsibles = document.querySelectorAll('.collapsible-header');
+            collapsibles.forEach(header => {
+                header.addEventListener('click', function() {
+                    this.classList.toggle('active');
+                    const content = this.nextElementSibling;
+                    if (content.style.display === 'block') {
+                        content.style.display = 'none';
+                    } else {
+                        content.style.display = 'block';
+                    }
+                });
+            });
+            
+            // 表格分页功能
+            initPagination('site-url-table', 5);
+            
+            // 搜索功能
+            const searchButton = document.getElementById('search-button');
+            const searchInput = document.getElementById('search-input');
+            
+            if (searchButton && searchInput) {
+                searchButton.addEventListener('click', function() {
+                    searchSites(searchInput.value);
+                });
+                
+                searchInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        searchSites(searchInput.value);
+                    }
+                });
+            }
+        });
+        
+        // 分页逻辑
+        function initPagination(tableId, itemsPerPage) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+            
+            const tbody = table.querySelector('tbody');
+            const rows = tbody.querySelectorAll('tr');
+            const pageCount = Math.ceil(rows.length / itemsPerPage);
+            
+            // 创建分页控制区
+            const paginationDiv = document.createElement('div');
+            paginationDiv.className = 'pagination-controls';
+            table.parentNode.insertBefore(paginationDiv, table.nextSibling);
+            
+            // 添加页码按钮
+            const prevBtn = document.createElement('button');
+            prevBtn.innerText = '上一页';
+            prevBtn.addEventListener('click', () => goToPage(currentPage - 1));
+            paginationDiv.appendChild(prevBtn);
+            
+            // 页码按钮
+            for (let i = 1; i <= pageCount; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.innerText = i;
+                pageBtn.addEventListener('click', () => goToPage(i));
+                paginationDiv.appendChild(pageBtn);
+            }
+            
+            const nextBtn = document.createElement('button');
+            nextBtn.innerText = '下一页';
+            nextBtn.addEventListener('click', () => goToPage(currentPage + 1));
+            paginationDiv.appendChild(nextBtn);
+            
+            // 显示第一页
+            let currentPage = 1;
+            goToPage(currentPage);
+            
+            function goToPage(page) {
+                if (page < 1 || page > pageCount) return;
+                
+                currentPage = page;
+                const start = (page - 1) * itemsPerPage;
+                const end = start + itemsPerPage;
+                
+                // 隐藏所有行
+                rows.forEach(row => row.style.display = 'none');
+                
+                // 显示当前页的行
+                for (let i = start; i < end && i < rows.length; i++) {
+                    rows[i].style.display = '';
+                }
+                
+                // 更新按钮状态
+                updatePaginationButtons();
+            }
+            
+            function updatePaginationButtons() {
+                const buttons = paginationDiv.querySelectorAll('button');
+                buttons.forEach((button, i) => {
+                    if (i === 0) { // 前一页按钮
+                        button.disabled = currentPage === 1;
+                    } else if (i === buttons.length - 1) { // 下一页按钮
+                        button.disabled = currentPage === pageCount;
+                    } else { // 页码按钮
+                        button.classList.toggle('active', i === currentPage);
+                    }
+                });
+            }
+        }
+        
+        // 搜索功能
+        function searchSites(query) {
+            if (!query) return;
+            
+            query = query.toLowerCase();
+            const table = document.getElementById('site-url-table');
+            const rows = table.querySelectorAll('tbody tr');
+            
+            let hasResults = false;
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    row.style.display = '';
+                    hasResults = true;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            // 隐藏分页控制
+            const pagination = table.nextElementSibling;
+            if (pagination && pagination.classList.contains('pagination-controls')) {
+                pagination.style.display = query ? 'none' : 'flex';
+            }
+            
+            // 显示搜索结果信息
+            const resultInfo = document.getElementById('search-result-info');
+            if (resultInfo) {
+                resultInfo.textContent = hasResults 
+                    ? `找到包含"${query}"的结果` 
+                    : `未找到包含"${query}"的结果`;
+                resultInfo.style.display = 'block';
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="container">
-        <h1>WordPress数据库内容扫描报告</h1>
-        <div class="timestamp">扫描时间: $(date '+%Y-%m-%d %H:%M:%S')</div>
-        
-        <div class="summary">
-            <h2>扫描总结</h2>
-            <p>共扫描 ${#SITES[@]} 个WordPress站点</p>
-EOF
-    
-    # 计算总违规数
-    local total_violations=0
-    local clean_sites=0
-    
-    for site in "${SITES[@]}"; do
-        site_name=$(basename "$site")
-        site_report="${OUTPUT_DIR}/${site_name}/scan_report.txt"
-        
-        if [ -f "$site_report" ]; then
-            violations=$(grep -c "发现可能的" "$site_report")
-            total_violations=$((total_violations + violations))
-            
-            if [ $violations -eq 0 ]; then
-                clean_sites=$((clean_sites + 1))
-            fi
-        fi
-    done
-    
-    # 继续HTML报告
-    cat >> "$summary_file" << EOF
-            <p>发现 ${total_violations} 处可能的违规内容</p>
-            <p>干净站点: ${clean_sites} 个</p>
-            <p>有问题站点: $((${#SITES[@]} - clean_sites)) 个</p>
+        <header>
+            <h1>WordPress数据库扫描报告</h1>
+            <p>服务器：{{SERVER_NAME}}</p>
+        </header>
+        <div class="report-meta">
+            <span>生成时间：{{SCAN_DATE}}</span>
+            <span>扫描耗时：{{SCAN_DURATION}}</span>
         </div>
-        
-        <h2>站点详情</h2>
-        
-        <div class="table-container">
-            <table>
-                <tr>
-                    <th>站点</th>
-                    <th>域名</th>
-                    <th>URL</th>
-                    <th>数据库</th>
-                    <th>违规数</th>
-                    <th>状态</th>
-                </tr>
-EOF
-    
-    # 添加站点表格
-    for site in "${SITES[@]}"; do
-        site_name=$(basename "$site")
-        site_report="${OUTPUT_DIR}/${site_name}/scan_report.txt"
-        site_url="${SITE_URLS[$site]}"
-        domain="${SITE_NAMES[$site]}"
-        
-        if [ -f "$site_report" ]; then
-            violations=$(grep -c "发现可能的" "$site_report")
+        <div class="content">
+            <section>
+                <h2>概览</h2>
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>WordPress数据库总数</h3>
+                        <p class="value">{{TOTAL_DBS}}</p>
+                    </div>
+                    <div class="card">
+                        <h3>总数据库大小</h3>
+                        <p class="value">{{TOTAL_SIZE}} MB</p>
+                    </div>
+                    <div class="card">
+                        <h3>总网站数</h3>
+                        <p class="value">{{TOTAL_SITES}}</p>
+                    </div>
+                    <div class="card">
+                        <h3>扫描站点总数</h3>
+                        <p class="value">{{SCAN_SITES}}</p>
+                    </div>
+                </div>
+            </section>
             
-            if [ $violations -gt 0 ]; then
-                status="<span style='color: #e74c3c;'>有违规内容</span>"
-                site_class="warning"
-            else
-                status="<span style='color: #2ecc71;'>正常</span>"
-                site_class="clean"
-            fi
+            <section>
+                <h2>站点URL信息</h2>
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="搜索站点...">
+                    <button id="search-button">搜索</button>
+                </div>
+                <p id="search-result-info" style="display: none; margin: 1rem 0; font-style: italic;"></p>
+                <table id="site-url-table">
+                    <thead>
+                        <tr>
+                            <th>数据库名称</th>
+                            <th>站点URL</th>
+                            <th>首页URL</th>
+                            <th>多站点</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{SITE_URL_TABLE_ROWS}}
+                    </tbody>
+                </table>
+            </section>
             
-            db_name=$(grep "数据库名称:" "$site_report" | cut -d: -f2 | tr -d ' ')
-            db_prefix=$(grep "表前缀:" "$site_report" | cut -d: -f2 | tr -d ' ')
-            
-            # 添加表格行
-            cat >> "$summary_file" << EOF
-                <tr>
-                    <td>${site_name}</td>
-                    <td>${domain:-未知}</td>
-                    <td>${site_url:+<a href="${site_url}" target="_blank">${site_url}</a>}</td>
-                    <td>${db_name:-未知}${db_prefix:+ (${db_prefix})}</td>
-                    <td>${violations}</td>
-                    <td>${status}</td>
-                </tr>
-EOF
-        fi
-    done
-    
-    # 关闭表格
-    cat >> "$summary_file" << EOF
-            </table>
+            <section>
+                <h2>垃圾信息检测结果</h2>
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>扫描内容总数</h3>
+                        <p class="value">{{TOTAL_CONTENT}}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--danger-color);">
+                        <h3>可疑内容数</h3>
+                        <p class="value" style="color: var(--danger-color);">{{TOTAL_SUSPICIOUS}}</p>
+                    </div>
+                    <div class="card">
+                        <h3>可疑站点数</h3>
+                        <p class="value">{{SUSPICIOUS_SITES}}</p>
+                    </div>
+                    <div class="card">
+                        <h3>检测关键词数</h3>
+                        <p class="value">24</p>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑文章内容</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>文章ID</th>
+                                    <th>标题</th>
+                                    <th>作者</th>
+                                    <th>发布日期</th>
+                                    <th>匹配关键词</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_POSTS_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑选项值</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>选项ID</th>
+                                    <th>选项名称</th>
+                                    <th>自动加载</th>
+                                    <th>匹配关键词</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_OPTIONS_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑评论内容</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>文章ID</th>
+                                    <th>评论日期</th>
+                                    <th>匹配关键词</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_COMMENTS_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑元数据</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>元数据ID</th>
+                                    <th>文章ID</th>
+                                    <th>元数据键</th>
+                                    <th>匹配关键词</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_POSTMETA_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑用户账号</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>用户名</th>
+                                    <th>创建时间</th>
+                                    <th>匹配条件</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_USERS_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="collapsible">
+                    <div class="collapsible-header">可疑日期内容</div>
+                    <div class="collapsible-content">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>数据库</th>
+                                    <th>文章ID</th>
+                                    <th>标题</th>
+                                    <th>作者</th>
+                                    <th>发布/修改日期</th>
+                                    <th>异常</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {{SUSPICIOUS_DATES_ROWS}}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
         </div>
-        
-        <h2>详细报告</h2>
-EOF
-    
-    # 添加每个站点的详细报告
-    for site in "${SITES[@]}"; do
-        site_name=$(basename "$site")
-        site_report="${OUTPUT_DIR}/${site_name}/scan_report.txt"
-        
-        if [ -f "$site_report" ]; then
-            violations=$(grep -c "发现可能的" "$site_report")
-            
-            if [ $violations -gt 0 ]; then
-                site_class="warning"
-            else
-                site_class="clean"
-            fi
-            
-            # 添加站点详情
-            add_site_details_to_html "$site" "$summary_file" "$site_class"
-        fi
-    done
-    
-    # 添加页脚
-    cat >> "$summary_file" << EOF
         <footer>
-            <p>WordPress数据库内容扫描工具 v${VERSION} | 扫描完成时间: $(date '+%Y-%m-%d %H:%M:%S')</p>
+            <p>WordPress数据库扫描报告 | 生成于{{SCAN_DATE}} | v1.0</p>
         </footer>
     </div>
 </body>
 </html>
 EOF
+
+    # 创建站点报告模板 - 修改主模板适用于单站点报告
+    sed -e 's|<h1>WordPress数据库扫描报告</h1>|<h1>数据库 {{DB_NAME}} 扫描报告</h1>|g' \
+        -e 's|<p>服务器：{{SERVER_NAME}}</p>|<p>站点目录：{{SITE_DIR}}</p>|g' \
+        "${template_dir}/report_template.html" > "${template_dir}/site_report_template.html"
     
-    log_success "HTML报告已生成: ${CYAN}${summary_file}${NC}"
+    # 保持主报告模板原样
+    cp "${template_dir}/report_template.html" "${template_dir}/main_report_template.html"
     
-    # 尝试自动打开HTML报告
-    if command -v xdg-open &>/dev/null; then
-        xdg-open "$summary_file" &>/dev/null &
-    elif command -v open &>/dev/null; then
-        open "$summary_file" &>/dev/null &
-    fi
+    echo "报告模板准备完成"
 }
 
-# 查找WordPress站点
-find_wordpress_sites() {
-    local found_sites=()
+# 准备报告模板
+prepare_templates() {
+    log "准备报告模板..."
     
-    # 首先检查宝塔面板的网站目录
-    if [ -d "/www/wwwroot" ]; then
-        log_info "检测到宝塔面板环境，正在搜索宝塔站点..."
-        
-        # 查找所有包含wp-config.php的目录（宝塔站点）
-        while IFS= read -r config_file; do
-            site_dir=$(dirname "$config_file")
-            found_sites+=("$site_dir")
-        done < <(find /www/wwwroot -type f -name "wp-config.php" 2>/dev/null)
-        
-        log_success "在宝塔面板中找到 ${#found_sites[@]} 个WordPress站点"
-    fi
+    # 创建模板目录
+    mkdir -p "${TEMP_DIR}/templates"
     
-    # 如果没有找到宝塔站点，或者宝塔站点数量为0，则搜索其他常见位置
-    if [ ${#found_sites[@]} -eq 0 ]; then
-        log_info "正在搜索系统中的WordPress站点..."
-        
-        # 常见的Web目录
-        local web_dirs=(
-            "/var/www"
-            "/srv/www"
-            "/usr/share/nginx"
-            "/usr/share/apache2"
-            "/home/*/public_html"
-            "$(pwd)"
-        )
-        
-        for dir in "${web_dirs[@]}"; do
-            if [ -d "$dir" ]; then
-                while IFS= read -r config_file; do
-                    site_dir=$(dirname "$config_file")
-                    found_sites+=("$site_dir")
-                done < <(find "$dir" -type f -name "wp-config.php" 2>/dev/null)
-            fi
-        done
-        
-        log_success "在系统中找到 ${#found_sites[@]} 个WordPress站点"
-    fi
+    # 创建HTML模板
+    create_html_template "${TEMP_DIR}/templates"
     
-    if [ ${#found_sites[@]} -eq 0 ]; then
-        log_error "未找到任何WordPress站点"
-        log_info "如果您使用宝塔面板，请确保站点在 /www/wwwroot/ 目录下"
-        exit 1
-    fi
+    log "报告模板准备完成"
+}
+
+# 创建单站点报告
+create_site_report() {
+    local site_dir=$1
+    local site_report_dir=$2
+    local site_url=$3
+    local db_name=$4
+    local db_size=$5
+    local table_count=$6
+    local post_count=$7
+    local user_count=$8
+    local comment_count=$9
+    local wp_version=${10}
+    local total_suspicious=${11}
+    local suspicious_posts=${12}
+    local suspicious_users=${13}
+    local suspicious_options=${14}
+    local suspicious_comments=${15}
+    local suspicious_postmeta=${16}
+    local suspicious_dates=${17}
     
-    log_success "共找到 ${#found_sites[@]} 个WordPress站点"
-    echo ""
-    
-    # 询问是否扫描所有站点
-    echo -e "${YELLOW}发现以下WordPress站点:${NC}"
-    for ((i=0; i<${#found_sites[@]}; i++)); do
-        echo -e "${CYAN}[$i]${NC} ${found_sites[$i]}"
-    done
-    echo ""
-    echo -e "${YELLOW}按Enter键扫描所有站点，或输入站点编号(如 0,1,3)扫描指定站点...${NC}"
-    read -t 10 site_selection
-    
-    echo ""
-    
-    # 如果用户有输入，则只扫描选择的站点
-    if [ -n "$site_selection" ]; then
-        IFS=',' read -ra selected_indices <<< "$site_selection"
-        local selected_sites=()
-        
-        for index in "${selected_indices[@]}"; do
-            if [[ "$index" =~ ^[0-9]+$ ]] && [ "$index" -lt "${#found_sites[@]}" ]; then
-                selected_sites+=("${found_sites[$index]}")
-                log_info "已选择站点: ${CYAN}${found_sites[$index]}${NC}"
-            else
-                log_warning "忽略无效的站点索引: $index"
-            fi
-        done
-        
-        if [ ${#selected_sites[@]} -gt 0 ]; then
-            SITES=("${selected_sites[@]}")
-            log_info "将扫描选定的 ${#SITES[@]} 个站点"
-        else
-            SITES=("${found_sites[@]}")
-            log_info "没有有效的站点选择，将扫描所有 ${#SITES[@]} 个站点"
+    # 确保WordPress版本不为空
+    if [ -z "$wp_version" ] || [ "$wp_version" = "未知" ]; then
+        # 尝试从wp-includes/version.php文件获取版本
+        if [ -f "${site_dir}/wp-includes/version.php" ]; then
+            wp_version=$(grep -oP "\\\$wp_version\s*=\s*'[^']+'" "${site_dir}/wp-includes/version.php" | cut -d"'" -f2)
+            # 保存到文件
+            echo -e "version\n${wp_version}" > "${site_report_dir}/results/wp_version.txt"
         fi
+    fi
+    
+    # 如果仍然未知，设置默认值
+    [ -z "$wp_version" ] && wp_version="未知"
+    
+    # 检查结果文件存在性
+    local results_dir="${site_report_dir}/results"
+    for result_file in suspicious_posts.txt suspicious_users.txt suspicious_options.txt suspicious_comments.txt suspicious_postmeta.txt suspicious_dates.txt; do
+        if [ ! -f "${results_dir}/${result_file}" ]; then
+            touch "${results_dir}/${result_file}"
+        fi
+    done
+    
+    # 准备报告数据
+    local site_name=$(basename "$site_dir")
+    
+    # 创建HTML报告
+    cat > "${site_report_dir}/report.html" << EOL
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordPress站点扫描报告 - ${site_name}</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        header h1 {
+            color: white;
+            margin: 0;
+        }
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background-color: white;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            flex: 1;
+            min-width: 200px;
+        }
+        .warning {
+            background-color: #e74c3c;
+            color: white;
+        }
+        .safe {
+            background-color: #2ecc71;
+            color: white;
+        }
+        .number {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #2c3e50;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .tabs {
+            margin-top: 20px;
+        }
+        .tab-button {
+            background-color: #f5f5f5;
+            border: none;
+            padding: 10px 20px;
+            margin-right: 5px;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+        }
+        .tab-button.active {
+            background-color: #2c3e50;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background-color: white;
+            border-radius: 0 5px 5px 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .tab-content.active {
+            display: block;
+        }
+        footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 0.9em;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>WordPress站点扫描报告</h1>
+        <p>站点: ${site_name} (${site_url})</p>
+    </header>
+    
+    <div class="dashboard">
+        <div class="card ${total_suspicious > 0 ? 'warning' : 'safe'}">
+            <h3>可疑内容</h3>
+            <div class="number">${total_suspicious}</div>
+            <p>检测到的可疑项目总数</p>
+        </div>
+        <div class="card">
+            <h3>WordPress信息</h3>
+            <p>版本: ${wp_version}</p>
+            <p>数据库: ${db_name}</p>
+            <p>大小: ${db_size} MB</p>
+        </div>
+        <div class="card">
+            <h3>内容统计</h3>
+            <p>表: ${table_count}</p>
+            <p>文章: ${post_count}</p>
+            <p>用户: ${user_count}</p>
+            <p>评论: ${comment_count}</p>
+        </div>
+    </div>
+    
+    <div class="tabs">
+        <button class="tab-button active" onclick="openTab(event, 'suspicious-posts')">可疑文章 (${suspicious_posts})</button>
+        <button class="tab-button" onclick="openTab(event, 'suspicious-users')">可疑用户 (${suspicious_users})</button>
+        <button class="tab-button" onclick="openTab(event, 'suspicious-options')">可疑选项 (${suspicious_options})</button>
+        <button class="tab-button" onclick="openTab(event, 'suspicious-comments')">可疑评论 (${suspicious_comments})</button>
+        <button class="tab-button" onclick="openTab(event, 'suspicious-postmeta')">可疑元数据 (${suspicious_postmeta})</button>
+        <button class="tab-button" onclick="openTab(event, 'suspicious-dates')">可疑日期 (${suspicious_dates})</button>
+    </div>
+    
+    <div id="suspicious-posts" class="tab-content active">
+        <h3>可疑文章内容</h3>
+EOL
+
+    # 插入可疑文章表格
+    if [ "$suspicious_posts" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_posts.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_posts.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
     else
-        SITES=("${found_sites[@]}")
-        log_info "将扫描所有 ${#SITES[@]} 个站点"
+        echo '<p>未发现可疑文章内容</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <div id="suspicious-users" class="tab-content">
+        <h3>可疑用户</h3>
+EOL
+
+    # 插入可疑用户表格
+    if [ "$suspicious_users" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_users.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_users.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
+    else
+        echo '<p>未发现可疑用户</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <div id="suspicious-options" class="tab-content">
+        <h3>可疑选项值</h3>
+EOL
+
+    # 插入可疑选项表格
+    if [ "$suspicious_options" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_options.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_options.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
+    else
+        echo '<p>未发现可疑选项值</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <div id="suspicious-comments" class="tab-content">
+        <h3>可疑评论</h3>
+EOL
+
+    # 插入可疑评论表格
+    if [ "$suspicious_comments" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_comments.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_comments.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
+    else
+        echo '<p>未发现可疑评论</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <div id="suspicious-postmeta" class="tab-content">
+        <h3>可疑元数据</h3>
+EOL
+
+    # 插入可疑元数据表格
+    if [ "$suspicious_postmeta" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_postmeta.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_postmeta.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
+    else
+        echo '<p>未发现可疑元数据</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <div id="suspicious-dates" class="tab-content">
+        <h3>可疑日期</h3>
+EOL
+
+    # 插入可疑日期表格
+    if [ "$suspicious_dates" -gt 0 ]; then
+        echo '<table><thead><tr>' >> "${site_report_dir}/report.html"
+        head -n 1 "${results_dir}/suspicious_dates.txt" | awk -F'\t' '{for(i=1; i<=NF; i++) printf "<th>%s</th>", $i; print ""}' >> "${site_report_dir}/report.html"
+        echo '</tr></thead><tbody>' >> "${site_report_dir}/report.html"
+        
+        tail -n +2 "${results_dir}/suspicious_dates.txt" | awk -F'\t' '{print "<tr>"; for(i=1; i<=NF; i++) printf "<td>%s</td>", $i; print "</tr>"}' >> "${site_report_dir}/report.html"
+        
+        echo '</tbody></table>' >> "${site_report_dir}/report.html"
+    else
+        echo '<p>未发现可疑日期</p>' >> "${site_report_dir}/report.html"
+    fi
+
+    cat >> "${site_report_dir}/report.html" << EOL
+    </div>
+    
+    <footer>
+        <p>WordPress数据库扫描工具 - 扫描路径: ${site_dir}</p>
+    </footer>
+    
+    <script>
+        function openTab(evt, tabName) {
+            var i, tabcontent, tabbuttons;
+            
+            // 隐藏所有标签内容
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].className = tabcontent[i].className.replace(" active", "");
+            }
+            
+            // 移除所有标签按钮的active类
+            tabbuttons = document.getElementsByClassName("tab-button");
+            for (i = 0; i < tabbuttons.length; i++) {
+                tabbuttons[i].className = tabbuttons[i].className.replace(" active", "");
+            }
+            
+            // 显示当前标签，并添加active类到按钮
+            document.getElementById(tabName).className += " active";
+            evt.currentTarget.className += " active";
+        }
+    </script>
+</body>
+</html>
+EOL
+
+    log "站点报告生成完成: ${site_report_dir}/report.html"
+}
+
+# 创建总报告
+create_master_report() {
+    local output_dir=$1
+    local timestamp=$2
+    local site_count=$3
+    
+    log "生成总报告: ${output_dir}/index.html"
+    
+    # 读取所有站点信息
+    local all_sites=()
+    local total_suspicious=0
+    local total_posts=0
+    local total_users=0
+    local total_comments=0
+    local total_sites=0
+    local total_size=0
+    local total_tables=0
+    
+    # 统计各类可疑内容数量
+    local total_suspicious_posts=0
+    local total_suspicious_users=0
+    local total_suspicious_options=0
+    local total_suspicious_comments=0
+    local total_suspicious_postmeta=0
+    local total_suspicious_dates=0
+    
+    if [ -f "${TEMP_DIR}/all_sites_info.txt" ]; then
+        while IFS='|' read -r site_dir site_url db_name db_size table_count post_count user_count comment_count wp_version suspicious_count; do
+            all_sites+=("$site_dir|$site_url|$db_name|$db_size|$table_count|$post_count|$user_count|$comment_count|$wp_version|$suspicious_count")
+            ((total_suspicious += suspicious_count))
+            ((total_posts += post_count))
+            ((total_users += user_count))
+            ((total_comments += comment_count))
+            ((total_sites++))
+            
+            # 数据库大小计算确保是数值
+            log "处理站点 ${db_name} 的数据库大小: ${db_size}"
+            db_size=$(echo "$db_size" | sed 's/[^0-9.]//g')
+            log "清理后的数据库大小: ${db_size}"
+            
+            if [[ "$db_size" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                # 使用更可靠的方式计算
+                if command -v awk &>/dev/null; then
+                    total_size=$(awk "BEGIN {print $total_size + $db_size}")
+                    log "使用awk计算后的总大小: ${total_size}"
+                else
+                    total_size=$(echo "$total_size + $db_size" | bc 2>/dev/null || echo "$total_size")
+                    log "使用bc计算后的总大小: ${total_size}"
+                fi
+            fi
+            
+            ((total_tables += table_count))
+            
+            # 获取每个站点的可疑内容具体信息
+            site_basename=$(basename "$site_dir")
+            local site_report_path="${output_dir}/${site_basename}"
+            
+            # 获取可疑文章数
+            if [ -f "${site_report_path}/results/suspicious_posts.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_posts.txt")
+                local site_suspicious_posts=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_posts += site_suspicious_posts))
+            fi
+            
+            # 获取可疑用户数
+            if [ -f "${site_report_path}/results/suspicious_users.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_users.txt")
+                local site_suspicious_users=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_users += site_suspicious_users))
+            fi
+            
+            # 获取可疑选项数
+            if [ -f "${site_report_path}/results/suspicious_options.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_options.txt")
+                local site_suspicious_options=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_options += site_suspicious_options))
+            fi
+            
+            # 获取可疑评论数
+            if [ -f "${site_report_path}/results/suspicious_comments.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_comments.txt")
+                local site_suspicious_comments=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_comments += site_suspicious_comments))
+            fi
+            
+            # 获取可疑元数据数
+            if [ -f "${site_report_path}/results/suspicious_postmeta.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_postmeta.txt")
+                local site_suspicious_postmeta=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_postmeta += site_suspicious_postmeta))
+            fi
+            
+            # 获取可疑日期数
+            if [ -f "${site_report_path}/results/suspicious_dates.txt" ]; then
+                local line_count=$(wc -l < "${site_report_path}/results/suspicious_dates.txt")
+                local site_suspicious_dates=$((line_count > 1 ? line_count - 1 : 0))
+                ((total_suspicious_dates += site_suspicious_dates))
+            fi
+        done < "${TEMP_DIR}/all_sites_info.txt"
+    fi
+    
+    # 确保total_size是一个有效数字
+    total_size=$(echo "$total_size" | sed 's/[^0-9.]//g')
+    if [ -z "$total_size" ]; then
+        total_size="0"
+    fi
+    
+    # 获取主机名
+    local hostname=$(hostname)
+    
+    # 创建HTML报告
+    cat > "${output_dir}/index.html" << EOL
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordPress数据库扫描报告</title>
+    <style>
+        :root {
+            --primary-color: #0073aa;
+            --secondary-color: #005177;
+            --accent-color: #d54e21;
+            --light-gray: #f5f5f5;
+            --dark-gray: #333;
+            --success-color: #46b450;
+            --warning-color: #ffb900;
+            --danger-color: #dc3232;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f1f1f1;
+        }
+        
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            margin: 2rem auto;
+        }
+        
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 5px 5px 0 0;
+        }
+        
+        .report-meta {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--secondary-color);
+            color: white;
+            padding: 0.5rem 1.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .content {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0 0 5px 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        h2 {
+            font-size: 1.4rem;
+            margin: 1.5rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+            color: var(--primary-color);
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 5px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-top: 3px solid var(--primary-color);
+        }
+        
+        .card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--dark-gray);
+        }
+        
+        .card p.value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+        
+        .card.warning {
+            border-top-color: var(--warning-color);
+        }
+        
+        .card.warning p.value {
+            color: var(--warning-color);
+        }
+        
+        .card.danger {
+            border-top-color: var(--danger-color);
+        }
+        
+        .card.danger p.value {
+            color: var(--danger-color);
+        }
+        
+        .card.success {
+            border-top-color: var(--success-color);
+        }
+        
+        .card.success p.value {
+            color: var(--success-color);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+        }
+        
+        thead {
+            background-color: var(--light-gray);
+        }
+        
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background-color: rgba(0, 115, 170, 0.05);
+        }
+        
+        tr.child-site {
+            background-color: rgba(0, 115, 170, 0.03);
+        }
+        
+        tr.child-site td {
+            padding-left: 2rem;
+            font-size: 0.95em;
+        }
+        
+        .suspicious-low a {
+            color: var(--primary-color);
+        }
+        
+        .suspicious-medium a {
+            color: var(--warning-color);
+        }
+        
+        .suspicious-high a {
+            color: var(--danger-color);
+        }
+        
+        .site-link {
+            text-decoration: none;
+            color: var(--primary-color);
+        }
+        
+        .site-link:hover {
+            text-decoration: underline;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            padding: 1rem;
+            color: #777;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                width: 95%;
+            }
+            
+            .summary-cards {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* 分页控制样式 */
+        .pagination-controls {
+            display: flex;
+            justify-content: center;
+            margin: 1.5rem 0;
+            gap: 0.5rem;
+        }
+        
+        .pagination-controls button {
+            padding: 0.5rem 1rem;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .pagination-controls button:hover {
+            background-color: var(--light-gray);
+        }
+        
+        .pagination-controls button.active {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        .pagination-controls button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* 搜索框样式 */
+        .search-box {
+            margin: 1rem 0;
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .search-box input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .search-box button {
+            padding: 0.5rem 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+    </style>
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 站点表格分页功能
+            initPagination('site-url-table', 5);
+            
+            // 搜索功能
+            const searchButton = document.getElementById('search-button');
+            const searchInput = document.getElementById('search-input');
+            
+            if (searchButton && searchInput) {
+                searchButton.addEventListener('click', function() {
+                    searchSites(searchInput.value);
+                });
+                
+                searchInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        searchSites(searchInput.value);
+                    }
+                });
+            }
+        });
+        
+        // 分页逻辑
+        function initPagination(tableId, itemsPerPage) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+            
+            const tbody = table.querySelector('tbody');
+            const rows = tbody.querySelectorAll('tr');
+            const pageCount = Math.ceil(rows.length / itemsPerPage);
+            
+            // 创建分页控制区
+            const paginationDiv = document.createElement('div');
+            paginationDiv.className = 'pagination-controls';
+            table.parentNode.insertBefore(paginationDiv, table.nextSibling);
+            
+            // 添加页码按钮
+            const prevBtn = document.createElement('button');
+            prevBtn.innerText = '上一页';
+            prevBtn.addEventListener('click', () => goToPage(currentPage - 1));
+            paginationDiv.appendChild(prevBtn);
+            
+            // 页码按钮
+            for (let i = 1; i <= pageCount; i++) {
+                const pageBtn = document.createElement('button');
+                pageBtn.innerText = i;
+                pageBtn.addEventListener('click', () => goToPage(i));
+                paginationDiv.appendChild(pageBtn);
+            }
+            
+            const nextBtn = document.createElement('button');
+            nextBtn.innerText = '下一页';
+            nextBtn.addEventListener('click', () => goToPage(currentPage + 1));
+            paginationDiv.appendChild(nextBtn);
+            
+            // 显示第一页
+            let currentPage = 1;
+            goToPage(currentPage);
+            
+            function goToPage(page) {
+                if (page < 1 || page > pageCount) return;
+                
+                currentPage = page;
+                const start = (page - 1) * itemsPerPage;
+                const end = start + itemsPerPage;
+                
+                // 隐藏所有行
+                rows.forEach(row => row.style.display = 'none');
+                
+                // 显示当前页的行
+                for (let i = start; i < end && i < rows.length; i++) {
+                    rows[i].style.display = '';
+                }
+                
+                // 更新按钮状态
+                updatePaginationButtons();
+            }
+            
+            function updatePaginationButtons() {
+                const buttons = paginationDiv.querySelectorAll('button');
+                buttons.forEach((button, i) => {
+                    if (i === 0) { // 前一页按钮
+                        button.disabled = currentPage === 1;
+                    } else if (i === buttons.length - 1) { // 下一页按钮
+                        button.disabled = currentPage === pageCount;
+                    } else { // 页码按钮
+                        button.classList.toggle('active', i === currentPage);
+                    }
+                });
+            }
+        }
+        
+        // 搜索功能
+        function searchSites(query) {
+            if (!query) return;
+            
+            query = query.toLowerCase();
+            const table = document.getElementById('site-url-table');
+            const rows = table.querySelectorAll('tbody tr');
+            
+            let hasResults = false;
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                if (text.includes(query)) {
+                    row.style.display = '';
+                    hasResults = true;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            // 隐藏分页控制
+            const pagination = table.nextElementSibling;
+            if (pagination && pagination.classList.contains('pagination-controls')) {
+                pagination.style.display = query ? 'none' : 'flex';
+            }
+            
+            // 显示搜索结果信息
+            const resultInfo = document.getElementById('search-result-info');
+            if (resultInfo) {
+                resultInfo.textContent = hasResults 
+                    ? "找到包含\"" + query + "\"的结果" 
+                    : "未找到包含\"" + query + "\"的结果";
+                resultInfo.style.display = 'block';
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>WordPress数据库扫描报告</h1>
+            <p>服务器：${hostname}</p>
+        </header>
+        <div class="report-meta">
+            <span>生成时间：${timestamp}</span>
+            <span>扫描站点数：${total_sites}</span>
+        </div>
+        <div class="content">
+            <section>
+                <h2>概览</h2>
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>WordPress数据库总数</h3>
+                        <p class="value">${total_sites}</p>
+                    </div>
+                    <div class="card">
+                        <h3>总数据库大小</h3>
+                        <p class="value">${total_size} MB</p>
+                    </div>
+                    <div class="card">
+                        <h3>总文章数</h3>
+                        <p class="value">${total_posts}</p>
+                    </div>
+                    <div class="card">
+                        <h3>总用户数</h3>
+                        <p class="value">${total_users}</p>
+                    </div>
+                </div>
+                
+                <div class="summary-cards">
+                    <div class="card">
+                        <h3>总评论数</h3>
+                        <p class="value">${total_comments}</p>
+                    </div>
+                    <div class="card">
+                        <h3>总表数量</h3>
+                        <p class="value">${total_tables}</p>
+                    </div>
+                    <div class="card" style="border-top-color: var(--danger-color);">
+                        <h3>可疑内容总数</h3>
+                        <p class="value" style="color: var(--danger-color);">${total_suspicious}</p>
+                    </div>
+                    <div class="card">
+                        <h3>扫描站点总数</h3>
+                        <p class="value">${total_sites}</p>
+                    </div>
+                </div>
+            </section>
+            
+            <section>
+                <h2>站点信息</h2>
+                <div class="search-box">
+                    <input type="text" id="search-input" placeholder="搜索站点...">
+                    <button id="search-button">搜索</button>
+                </div>
+                <p id="search-result-info" style="display: none; margin: 1rem 0; font-style: italic;"></p>
+                <table id="site-url-table">
+                    <thead>
+                        <tr>
+                            <th>站点路径</th>
+                            <th>站点URL</th>
+                            <th>数据库名</th>
+                            <th>大小(MB)</th>
+                            <th>表数量</th>
+                            <th>文章数</th>
+                            <th>用户数</th>
+                            <th>评论数</th>
+                            <th>WP版本</th>
+                            <th>可疑项</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+EOL
+
+    # 站点行
+    for site_info in "${all_sites[@]}"; do
+        IFS='|' read -r site_dir site_url db_name db_size table_count post_count user_count comment_count wp_version suspicious_count <<< "$site_info"
+        
+        local suspicious_class="suspicious-low"
+        if [ "$suspicious_count" -gt 10 ]; then
+            suspicious_class="suspicious-high"
+        elif [ "$suspicious_count" -gt 0 ]; then
+            suspicious_class="suspicious-medium"
+        fi
+        
+        local site_basename=$(basename "$site_dir")
+        local report_link="./${site_basename}/report.html"
+        
+        cat >> "${output_dir}/index.html" << EOL
+            <tr>
+                <td>${site_dir}</td>
+                <td><a href="${site_url}" target="_blank" class="site-link">${site_url}</a></td>
+                <td>${db_name}</td>
+                <td>${db_size}</td>
+                <td>${table_count}</td>
+                <td>${post_count}</td>
+                <td>${user_count}</td>
+                <td>${comment_count}</td>
+                <td>${wp_version}</td>
+                <td class="${suspicious_class}"><a href="${report_link}" class="site-link">${suspicious_count}</a></td>
+            </tr>
+EOL
+    done
+
+    # 如果没有站点数据，添加一行提示信息
+    if [ ${#all_sites[@]} -eq 0 ]; then
+        cat >> "${output_dir}/index.html" << EOL
+            <tr>
+                <td colspan="10" style="text-align: center;">未找到WordPress站点或无法访问其数据库</td>
+            </tr>
+EOL
+    fi
+
+    # 完成HTML
+    cat >> "${output_dir}/index.html" << EOL
+        </tbody>
+    </table>
+    </section>
+    
+    <section>
+        <h2>可疑内容统计</h2>
+        <div class="summary-cards">
+            <div class="card" style="border-top-color: var(--danger-color);">
+                <h3>可疑文章</h3>
+                <p class="value" style="color: var(--danger-color);">${total_suspicious_posts}</p>
+            </div>
+            <div class="card" style="border-top-color: var(--warning-color);">
+                <h3>可疑用户</h3>
+                <p class="value" style="color: var(--warning-color);">${total_suspicious_users}</p>
+            </div>
+            <div class="card" style="border-top-color: var(--danger-color);">
+                <h3>可疑选项</h3>
+                <p class="value" style="color: var(--danger-color);">${total_suspicious_options}</p>
+            </div>
+            <div class="card" style="border-top-color: var(--warning-color);">
+                <h3>可疑评论</h3>
+                <p class="value" style="color: var(--warning-color);">${total_suspicious_comments}</p>
+            </div>
+            <div class="card" style="border-top-color: var(--danger-color);">
+                <h3>可疑元数据</h3>
+                <p class="value" style="color: var(--danger-color);">${total_suspicious_postmeta}</p>
+            </div>
+            <div class="card" style="border-top-color: var(--warning-color);">
+                <h3>可疑日期</h3>
+                <p class="value" style="color: var(--warning-color);">${total_suspicious_dates}</p>
+            </div>
+        </div>
+    </section>
+    
+    <footer>
+        <p>WordPress数据库扫描工具 - 生成于 ${timestamp}</p>
+    </footer>
+</div>
+</body>
+</html>
+EOL
+
+    log "总报告生成完成: ${output_dir}/index.html"
+}
+
+# 处理报告输出
+process_report_output() {
+    log "处理报告输出..."
+    
+    # 判断站点路径决定输出位置
+    if [[ "${FOUND_SITES[0]}" == /var/www/* ]]; then
+        # 如果站点在/var/www/下，输出到/var/www/html/
+        local output_dir="/var/www/html/wp_scan_report_$(date +%Y%m%d)"
+        mkdir -p "$output_dir"
+        cp -r "${REPORT_DIR}"/* "$output_dir/"
+        chmod -R 755 "$output_dir"
+        log "报告已输出到: $output_dir"
+        echo -e "${GREEN}报告已生成，请访问: http://服务器IP/wp_scan_report_$(date +%Y%m%d)/${NC}"
+    else
+        # 其他情况打包成tar放在用户目录下
+        local user_home=$(eval echo ~$(whoami))
+        local output_file="${user_home}/wp_scan_report_$(date +%Y%m%d).tar.gz"
+        tar -czf "$output_file" -C "${REPORT_DIR}" .
+        log "报告已打包到: $output_file"
+        echo -e "${GREEN}报告已打包到: $output_file${NC}"
     fi
 }
 
-# 显示使用帮助
-show_help() {
-    echo -e "${BOLD}WordPress 数据库内容扫描工具 v${VERSION}${NC}"
-    echo ""
-    echo "使用方法: $0 [选项]"
-    echo ""
-    echo "选项:"
-    echo "  -h, --help          显示帮助信息"
-    echo "  -v, --verbose       显示详细输出信息"
-    echo "  -o, --output DIR    指定输出目录 (默认: 当前目录/wp_scan_results_<日期时间>)"
-    echo ""
-    echo "例子:"
-    echo "  $0                  使用默认设置扫描所有WordPress站点"
-    echo "  $0 -o /tmp/results  将结果输出到 /tmp/results 目录"
-    echo ""
-}
-
-# 解析命令行参数
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            -v|--verbose)
-                LOG_LEVEL=2
-                shift
-                ;;
-            -o|--output)
-                OUTPUT_DIR="$2"
-                shift 2
-                ;;
-            *)
-                echo -e "${RED}未知选项: $1${NC}"
-                show_help
-                exit 1
-                ;;
-        esac
-    done
+# 清理临时文件
+cleanup() {
+    log "清理临时文件..."
+    rm -rf "${TEMP_DIR}"
+    log "扫描完成！"
 }
 
 # 主函数
 main() {
-    # 解析命令行参数
-    parse_args "$@"
-    
-    # 创建输出目录
-    mkdir -p "$OUTPUT_DIR"
-    
-    # 显示横幅
     show_banner
+    
+    # 检查必要的命令
+    for cmd in mysql find grep sed awk tar; do
+        if ! command -v $cmd &> /dev/null; then
+            log "错误: 找不到命令 $cmd，请先安装"
+            exit 1
+        fi
+    done
+    
+    # 准备报告模板
+    prepare_templates
     
     # 查找WordPress站点
     find_wordpress_sites
     
-    # 开始扫描
-    print_separator
-    log_info "开始扫描${#SITES[@]}个WordPress站点..."
-    print_separator
-    
-    # 扫描每个站点
-    for site in "${SITES[@]}"; do
-        scan_site "$site"
+    # 调试信息
+    log "找到的站点数量: ${#FOUND_SITES[@]}"
+    for site in "${FOUND_SITES[@]}"; do
+        log "站点: $site"
     done
     
-    # 生成HTML报告
-    create_html_report
+    if [ ${#FOUND_SITES[@]} -eq 0 ]; then
+        log "未找到任何WordPress站点！"
+        exit 0
+    fi
     
-    # 显示完成信息
-    print_separator
-    log_success "扫描完成，结果保存在: ${CYAN}${OUTPUT_DIR}${NC}"
-    log_info "HTML报告: ${CYAN}${OUTPUT_DIR}/scan_report.html${NC}"
-    print_separator
+    # 扫描每个站点
+    for site_dir in "${FOUND_SITES[@]}"; do
+        wp_config="${site_dir}/wp-config.php"
+        
+        if [ -f "$wp_config" ]; then
+            db_info=$(extract_db_info "$wp_config")
+            scan_suspicious_content "$site_dir" "$db_info" "$REPORT_DIR"
+        else
+            log "警告: $site_dir 中找不到wp-config.php文件"
+        fi
+    done
+    
+    # 创建总报告
+    create_master_report "$REPORT_DIR" "$CURRENT_DATE" "$TOTAL_SITES"
+    
+    # 处理报告输出
+    process_report_output
+    
+    # 清理临时文件
+    cleanup
+    
+    echo -e "${GREEN}扫描完成！共扫描 ${TOTAL_SITES} 个站点，发现 ${TOTAL_SUSPICIOUS} 个可疑项${NC}"
 }
 
 # 执行主函数
-main "$@"
+main "$@" 
