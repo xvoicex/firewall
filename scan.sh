@@ -56,11 +56,11 @@ show_banner() {
 find_wordpress_sites() {
     log "开始查找WordPress站点..."
     
-    # 检查常见的网站根目录
-    WEB_ROOTS=("/var/www/" "/www/wwwroot/" "/usr/share/nginx/html/" "/usr/local/apache2/htdocs/")
+    # 只检查指定的网站根目录
+    WEB_ROOTS=("/var/www/" "/www/wwwroot/")
     
-    # 添加当前目录及上级目录以提高灵活性
-    WEB_ROOTS+=("$(pwd)" "$(dirname "$(pwd)")")
+    # 用于存储已找到的站点路径，防止重复添加
+    local found_paths=()
     
     for root in "${WEB_ROOTS[@]}"; do
         if [ -d "$root" ]; then
@@ -69,28 +69,26 @@ find_wordpress_sites() {
             while IFS= read -r config_file; do
                 if [ -f "$config_file" ]; then
                     site_dir=$(dirname "$config_file")
-                    FOUND_SITES+=("$site_dir")
-                    log "发现WordPress站点: $site_dir"
-                    ((TOTAL_SITES++))
+                    
+                    # 检查是否已经添加过该站点
+                    local is_duplicate=0
+                    for existing_path in "${found_paths[@]}"; do
+                        if [ "$existing_path" = "$site_dir" ]; then
+                            is_duplicate=1
+                            break
+                        fi
+                    done
+                    
+                    if [ $is_duplicate -eq 0 ]; then
+                        FOUND_SITES+=("$site_dir")
+                        found_paths+=("$site_dir")
+                        log "发现WordPress站点: $site_dir"
+                        ((TOTAL_SITES++))
+                    fi
                 fi
             done < <(find "$root" -name "wp-config.php" -type f 2>/dev/null)
         fi
     done
-    
-    # 如果没有找到站点，尝试使用更广泛的搜索
-    if [ ${#FOUND_SITES[@]} -eq 0 ]; then
-        log "在常规目录未找到站点，尝试更深层次搜索..."
-        # 在用户可访问的目录下搜索
-        local user_home=$(eval echo ~$(whoami))
-        while IFS= read -r config_file; do
-            if [ -f "$config_file" ]; then
-                site_dir=$(dirname "$config_file")
-                FOUND_SITES+=("$site_dir")
-                log "发现WordPress站点: $site_dir"
-                ((TOTAL_SITES++))
-            fi
-        done < <(find "$user_home" -name "wp-config.php" -type f 2>/dev/null)
-    fi
     
     log "共发现 $TOTAL_SITES 个WordPress站点"
 }
