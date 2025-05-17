@@ -40,7 +40,7 @@ show_banner() {
     echo '╚███╔███╔╝╚██████╔╝██║  ██║██████╔╝██║     ██║  ██║███████╗███████║███████║'
     echo ' ╚══╝╚══╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝'
     echo -e "${CYAN}                      WordPress 站点管理工具 v1.1.0${NC}"
-    echo -e "${PURPLE}                        作者: Vince${NC}"
+    echo -e "${PURPLE}                        作者: Vince | vinceguan@ehaitech.com${NC}"
     echo
 }
 
@@ -105,7 +105,7 @@ check_args() {
         backupall)
             show_banner
             check_requirements
-            backup_all_sites
+            backup_all_sites "noask"  # 传递noask参数，表示不询问清理
             exit 0
             ;;
         cleanbackup)
@@ -318,11 +318,47 @@ update_wp_config() {
     # 备份原始配置文件
     cp "$config_file" "${config_file}.bak"
     
-    # 更新数据库配置
-    sed -i "s/define('DB_NAME'.*$/define('DB_NAME', '$db_name');/" "$config_file"
-    sed -i "s/define('DB_USER'.*$/define('DB_USER', '$db_user');/" "$config_file"
-    sed -i "s/define('DB_PASSWORD'.*$/define('DB_PASSWORD', '$db_pass');/" "$config_file"
-    sed -i "s/define('DB_HOST'.*$/define('DB_HOST', '127.0.0.1');/" "$config_file"
+    # 转义特殊字符，避免sed失败
+    local escaped_db_name=$(echo "$db_name" | sed 's/[\&/]/\\&/g')
+    local escaped_db_user=$(echo "$db_user" | sed 's/[\&/]/\\&/g')
+    local escaped_db_pass=$(echo "$db_pass" | sed 's/[\&/]/\\&/g')
+    
+    # 使用临时文件和awk进行安全替换
+    local temp_file=$(mktemp)
+    
+    # 检查wp-config.php的格式，适配不同版本的WordPress
+    if grep -q "define('DB_NAME'" "$config_file"; then
+        # 使用单引号格式 define('DB_NAME', 'xxx')
+        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
+            /define\([ ]*'\''DB_NAME'\''/ { print "define('\''DB_NAME'\'', '\''" name "'\'');"; next }
+            /define\([ ]*'\''DB_USER'\''/ { print "define('\''DB_USER'\'', '\''" user "'\'');"; next }
+            /define\([ ]*'\''DB_PASSWORD'\''/ { print "define('\''DB_PASSWORD'\'', '\''" pass "'\'');"; next }
+            /define\([ ]*'\''DB_HOST'\''/ { print "define('\''DB_HOST'\'', '\''127.0.0.1'\'');"; next }
+            { print }
+        ' > "$temp_file"
+    elif grep -q 'define("DB_NAME"' "$config_file"; then
+        # 使用双引号格式 define("DB_NAME", "xxx")
+        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
+            /define\([ ]*"DB_NAME"/ { print "define(\"DB_NAME\", \"" name "\");"; next }
+            /define\([ ]*"DB_USER"/ { print "define(\"DB_USER\", \"" user "\");"; next }
+            /define\([ ]*"DB_PASSWORD"/ { print "define(\"DB_PASSWORD\", \"" pass "\");"; next }
+            /define\([ ]*"DB_HOST"/ { print "define(\"DB_HOST\", \"127.0.0.1\");"; next }
+            { print }
+        ' > "$temp_file"
+    else
+        # 尝试通用匹配
+        show_info "使用通用格式更新配置..."
+        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
+            /DB_NAME/ && /define/ { print "define(\"DB_NAME\", \"" name "\");"; next }
+            /DB_USER/ && /define/ { print "define(\"DB_USER\", \"" user "\");"; next }
+            /DB_PASSWORD/ && /define/ { print "define(\"DB_PASSWORD\", \"" pass "\");"; next }
+            /DB_HOST/ && /define/ { print "define(\"DB_HOST\", \"127.0.0.1\");"; next }
+            { print }
+        ' > "$temp_file"
+    fi
+    
+    # 应用更改
+    mv "$temp_file" "$config_file"
     
     show_success "数据库配置已更新"
 }
@@ -778,6 +814,7 @@ install_wordpress() {
 backup_single_site() {
     local site_path="$1"
     local site_name=$(basename "$site_path")
+    local is_batch="$2"  # 新增参数，表示是否为批量备份
     
     echo -e "${YELLOW}正在备份 $site_name...${NC}"
     
@@ -819,21 +856,58 @@ backup_single_site() {
     
     echo -e "${GREEN}$site_name 备份完成${NC}"
     
-    # 询问是否清理旧备份
-    echo -n "是否清理旧备份文件？[y/N] "
-    read -r answer
-    if [[ $answer =~ ^[Yy]$ ]]; then
-        cleanup_old_backups
+    # 只在非批量备份时询问是否清理旧备份
+    if [ "$is_batch" != "true" ]; then
+        echo -n "是否清理旧备份文件？[y/N] "
+        read -r answer
+        if [[ $answer =~ ^[Yy]$ ]]; then
+            cleanup_old_backups
+        fi
     fi
 }
 
 # 备份所有站点
 backup_all_sites() {
+    show_info "开始备份所有WordPress站点..."
+    local site_count=0
+    local success_count=0
+    
+    # 计算站点数量
     for site_path in /var/www/*/; do
         if [ -f "$site_path/wp-config.php" ]; then
-            backup_single_site "$site_path"
+            ((site_count++))
         fi
     done
+    
+    if [ $site_count -eq 0 ]; then
+        show_warning "未找到WordPress站点"
+        return 0
+    fi
+    
+    show_info "找到 $site_count 个WordPress站点"
+    
+    # 备份所有站点
+    local current=0
+    for site_path in /var/www/*/; do
+        if [ -f "$site_path/wp-config.php" ]; then
+            ((current++))
+            show_info "[$current/$site_count] 备份站点: $(basename "$site_path")"
+            if backup_single_site "$site_path" "true"; then
+                ((success_count++))
+            fi
+        fi
+    done
+    
+    show_success "备份完成: $success_count/$site_count 个站点备份成功"
+    
+    # 只在所有站点备份完成后，询问一次是否清理
+    if [ "$1" != "noask" ]; then
+        echo -n "是否清理旧备份文件？[y/N] "
+        read -r answer
+        if [[ $answer =~ ^[Yy]$ ]]; then
+            cleanup_old_backups
+        fi
+    fi
 }
 
 # 还原站点
