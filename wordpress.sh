@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 配置项
-BACKUP_PATH="/root/wordpress_backup"
+BACKUP_PATH="/root/backup_wordpress"
 WEB_USER="www-data"
 WEB_GROUP="www-data"
 NGINX_SITES_PATH="/etc/nginx/sites-enabled"
