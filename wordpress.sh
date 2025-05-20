@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # 配置项
-BACKUP_PATH="/root/backup_wordpress"
+BACKUP_PATH="/root/wordpress_backup"
 WEB_USER="www-data"
 WEB_GROUP="www-data"
 NGINX_SITES_PATH="/etc/nginx/sites-enabled"
@@ -281,21 +281,77 @@ extract_archive() {
     fi
 }
 
+# 检查MySQL是否需要密码
+check_mysql_password() {
+    # 尝试无密码连接MySQL
+    if mysql -e "SELECT 1" &>/dev/null; then
+        # 无需密码
+        return 0
+    else
+        # 需要密码
+        return 1
+    fi
+}
+
+# 获取MySQL root密码
+get_mysql_root_password() {
+    local max_attempts=3
+    local attempt=1
+    local password=""
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo -n "请输入MySQL root密码: "
+        read -s password
+        echo
+        
+        # 测试密码是否正确
+        if echo "SELECT 1" | mysql -uroot -p"$password" &>/dev/null; then
+            echo "$password"
+            return 0
+        else
+            show_error "密码错误，请重试 ($attempt/$max_attempts)"
+            ((attempt++))
+        fi
+    done
+    
+    show_error "密码验证失败，已达到最大尝试次数"
+    return 1
+}
+
 # 创建数据库和用户
 create_database() {
     local db_name="$1"
     local db_pass=$(openssl rand -base64 12)
+    local mysql_cmd=""
+    local mysql_root_pass=""
+    
+    # 检查MySQL是否需要密码
+    if check_mysql_password; then
+        # 不要在这里输出消息，避免影响返回值
+        mysql_cmd="mysql"
+    else
+        # 不要在这里输出消息，避免影响返回值
+        mysql_root_pass=$(get_mysql_root_password)
+        if [ $? -ne 0 ]; then
+            return 1
+        fi
+        mysql_cmd="mysql -uroot -p'$mysql_root_pass'"
+    fi
+    
+    # 单独输出状态信息到stderr，不影响函数返回值
+    show_info "正在创建数据库..." >&2
     
     # 删除已存在的数据库和用户
-    mysql -e "DROP DATABASE IF EXISTS \`$db_name\`;"
-    mysql -e "DROP USER IF EXISTS '$db_name'@'localhost';"
+    eval "$mysql_cmd -e \"DROP DATABASE IF EXISTS \\\`$db_name\\\`;\""
+    eval "$mysql_cmd -e \"DROP USER IF EXISTS '$db_name'@'localhost';\""
     
     # 创建新的数据库和用户
-    mysql -e "CREATE DATABASE \`$db_name\` CHARACTER SET utf8mb4;"
-    mysql -e "CREATE USER '$db_name'@'localhost' IDENTIFIED BY '$db_pass';"
-    mysql -e "GRANT ALL ON \`$db_name\`.* TO '$db_name'@'localhost' WITH GRANT OPTION;"
-    mysql -e "FLUSH PRIVILEGES;"
+    eval "$mysql_cmd -e \"CREATE DATABASE \\\`$db_name\\\` CHARACTER SET utf8mb4;\""
+    eval "$mysql_cmd -e \"CREATE USER '$db_name'@'localhost' IDENTIFIED BY '$db_pass';\""
+    eval "$mysql_cmd -e \"GRANT ALL ON \\\`$db_name\\\`.* TO '$db_name'@'localhost' WITH GRANT OPTION;\""
+    eval "$mysql_cmd -e \"FLUSH PRIVILEGES;\""
     
+    # 只返回密码，不包含任何其他输出
     echo "$db_pass"
 }
 
@@ -318,49 +374,99 @@ update_wp_config() {
     # 备份原始配置文件
     cp "$config_file" "${config_file}.bak"
     
-    # 转义特殊字符，避免sed失败
-    local escaped_db_name=$(echo "$db_name" | sed 's/[\&/]/\\&/g')
-    local escaped_db_user=$(echo "$db_user" | sed 's/[\&/]/\\&/g')
-    local escaped_db_pass=$(echo "$db_pass" | sed 's/[\&/]/\\&/g')
-    
-    # 使用临时文件和awk进行安全替换
+    # 创建临时文件
     local temp_file=$(mktemp)
     
-    # 检查wp-config.php的格式，适配不同版本的WordPress
-    if grep -q "define('DB_NAME'" "$config_file"; then
-        # 使用单引号格式 define('DB_NAME', 'xxx')
-        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
-            /define\([ ]*'\''DB_NAME'\''/ { print "define('\''DB_NAME'\'', '\''" name "'\'');"; next }
-            /define\([ ]*'\''DB_USER'\''/ { print "define('\''DB_USER'\'', '\''" user "'\'');"; next }
-            /define\([ ]*'\''DB_PASSWORD'\''/ { print "define('\''DB_PASSWORD'\'', '\''" pass "'\'');"; next }
-            /define\([ ]*'\''DB_HOST'\''/ { print "define('\''DB_HOST'\'', '\''127.0.0.1'\'');"; next }
-            { print }
-        ' > "$temp_file"
-    elif grep -q 'define("DB_NAME"' "$config_file"; then
-        # 使用双引号格式 define("DB_NAME", "xxx")
-        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
-            /define\([ ]*"DB_NAME"/ { print "define(\"DB_NAME\", \"" name "\");"; next }
-            /define\([ ]*"DB_USER"/ { print "define(\"DB_USER\", \"" user "\");"; next }
-            /define\([ ]*"DB_PASSWORD"/ { print "define(\"DB_PASSWORD\", \"" pass "\");"; next }
-            /define\([ ]*"DB_HOST"/ { print "define(\"DB_HOST\", \"127.0.0.1\");"; next }
-            { print }
-        ' > "$temp_file"
-    else
-        # 尝试通用匹配
-        show_info "使用通用格式更新配置..."
-        cat "$config_file" | awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
-            /DB_NAME/ && /define/ { print "define(\"DB_NAME\", \"" name "\");"; next }
-            /DB_USER/ && /define/ { print "define(\"DB_USER\", \"" user "\");"; next }
-            /DB_PASSWORD/ && /define/ { print "define(\"DB_PASSWORD\", \"" pass "\");"; next }
-            /DB_HOST/ && /define/ { print "define(\"DB_HOST\", \"127.0.0.1\");"; next }
-            { print }
-        ' > "$temp_file"
+    # 检查配置文件格式并进行相应处理
+    show_info "分析配置文件格式..."
+    
+    # 确保密码不包含shell输出
+    # 删除可能包含的ANSI颜色代码和提示信息
+    db_pass=$(echo "$db_pass" | tr -d '\n' | sed -E 's/\^\[\[[0-9]+(;[0-9]+)*m[^[:cntrl:]]*\^\[\[0m//g')
+    
+    # 通过awk进行内容替换，确保处理多行内容和特殊字符
+    awk -v name="$db_name" -v user="$db_user" -v pass="$db_pass" '
+        # 匹配DB_NAME定义，无论使用什么引号格式
+        /DB_NAME/ && /define/ {
+            # 检测使用的引号类型
+            if ($0 ~ /'\''/) {
+                # 单引号格式
+                print "define('\''DB_NAME'\'', '\''" name "'\'');";
+            } else if ($0 ~ /"/) {
+                # 双引号格式
+                print "define(\"DB_NAME\", \"" name "\");";
+            } else {
+                # 默认使用双引号格式
+                print "define(\"DB_NAME\", \"" name "\");";
+            }
+            next;
+        }
+        
+        # 匹配DB_USER定义，无论使用什么引号格式
+        /DB_USER/ && /define/ {
+            # 检测使用的引号类型
+            if ($0 ~ /'\''/) {
+                # 单引号格式
+                print "define('\''DB_USER'\'', '\''" user "'\'');";
+            } else if ($0 ~ /"/) {
+                # 双引号格式
+                print "define(\"DB_USER\", \"" user "\");";
+            } else {
+                # 默认使用双引号格式
+                print "define(\"DB_USER\", \"" user "\");";
+            }
+            next;
+        }
+        
+        # 匹配DB_PASSWORD定义，无论使用什么引号格式
+        /DB_PASSWORD/ && /define/ {
+            # 检测使用的引号类型
+            if ($0 ~ /'\''/) {
+                # 单引号格式
+                print "define('\''DB_PASSWORD'\'', '\''" pass "'\'');";
+            } else if ($0 ~ /"/) {
+                # 双引号格式
+                print "define(\"DB_PASSWORD\", \"" pass "\");";
+            } else {
+                # 默认使用双引号格式
+                print "define(\"DB_PASSWORD\", \"" pass "\");";
+            }
+            next;
+        }
+        
+        # 匹配DB_HOST定义，无论使用什么引号格式
+        /DB_HOST/ && /define/ {
+            # 检测使用的引号类型
+            if ($0 ~ /'\''/) {
+                # 单引号格式
+                print "define('\''DB_HOST'\'', '\''127.0.0.1'\'');";
+            } else if ($0 ~ /"/) {
+                # 双引号格式
+                print "define(\"DB_HOST\", \"127.0.0.1\");";
+            } else {
+                # 默认使用双引号格式
+                print "define(\"DB_HOST\", \"127.0.0.1\");";
+            }
+            next;
+        }
+        
+        # 其他行原样输出
+        {print}
+    ' "$config_file" > "$temp_file"
+    
+    # 检查awk是否成功执行
+    if [ $? -ne 0 ]; then
+        show_error "更新配置文件时出错"
+        rm -f "$temp_file"
+        return 1
     fi
     
     # 应用更改
     mv "$temp_file" "$config_file"
+    chmod 644 "$config_file"
     
     show_success "数据库配置已更新"
+    return 0
 }
 
 # 设置站点权限
@@ -485,6 +591,55 @@ check_disk_space() {
     fi
     show_success "空间检查通过"
     return 0
+}
+
+# 从wp-config.php提取数据库信息
+extract_db_credentials() {
+    local config_file="$1"
+    local credentials=()
+    
+    if [ ! -f "$config_file" ]; then
+        show_error "未找到wp-config.php文件"
+        return 1
+    fi
+    
+    # 尝试多种格式匹配
+    # 1. 尝试单引号格式: define('DB_NAME', 'database_name');
+    local db_name=$(grep -o "define.*'DB_NAME'.*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | tail -1 | tr -d "'")
+    local db_user=$(grep -o "define.*'DB_USER'.*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | tail -1 | tr -d "'")
+    local db_pass=$(grep -o "define.*'DB_PASSWORD'.*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | tail -1 | tr -d "'")
+    
+    # 2. 如果上面失败，尝试双引号格式: define("DB_NAME", "database_name");
+    if [ -z "$db_name" ]; then
+        db_name=$(grep -o 'define.*"DB_NAME".*"[^"]*"' "$config_file" 2>/dev/null | grep -o '"[^"]*"' | tail -1 | tr -d '"')
+        db_user=$(grep -o 'define.*"DB_USER".*"[^"]*"' "$config_file" 2>/dev/null | grep -o '"[^"]*"' | tail -1 | tr -d '"')
+        db_pass=$(grep -o 'define.*"DB_PASSWORD".*"[^"]*"' "$config_file" 2>/dev/null | grep -o '"[^"]*"' | tail -1 | tr -d '"')
+    fi
+    
+    # 3. 如果上面都失败，尝试变量赋值格式: $dbname = 'database_name';
+    if [ -z "$db_name" ]; then
+        db_name=$(grep -o "\$[a-zA-Z_]*[Dd][Bb][_]*[Nn][Aa][Mm][Ee].*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | head -1 | tr -d "'")
+        db_user=$(grep -o "\$[a-zA-Z_]*[Dd][Bb][_]*[Uu][Ss][Ee][Rr].*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | head -1 | tr -d "'")
+        db_pass=$(grep -o "\$[a-zA-Z_]*[Dd][Bb][_]*[Pp][Aa][Ss][Ss].*'[^']*'" "$config_file" 2>/dev/null | grep -o "'[^']*'" | head -1 | tr -d "'")
+    fi
+    
+    # 4. 最后尝试使用sedawk提取
+    if [ -z "$db_name" ]; then
+        show_info "尝试通用方法提取数据库信息..."
+        db_name=$(awk -F "['\"]" '/DB_NAME/ {for(i=2; i<=NF; i++) if($i !~ /^[ \t]*$/) {print $i; break;}}' "$config_file" | head -1)
+        db_user=$(awk -F "['\"]" '/DB_USER/ {for(i=2; i<=NF; i++) if($i !~ /^[ \t]*$/) {print $i; break;}}' "$config_file" | head -1)
+        db_pass=$(awk -F "['\"]" '/DB_PASSWORD/ {for(i=2; i<=NF; i++) if($i !~ /^[ \t]*$/) {print $i; break;}}' "$config_file" | head -1)
+    fi
+    
+    # 验证是否找到数据库信息
+    if [ -z "$db_name" ] || [ -z "$db_user" ]; then
+        show_error "无法从wp-config.php提取数据库信息"
+        return 1
+    fi
+    
+    # 返回结果数组
+    credentials=("$db_name" "$db_user" "$db_pass")
+    echo "${credentials[@]}"
 }
 
 # 安装WordPress
@@ -736,10 +891,27 @@ install_wordpress() {
             show_info "创建数据库..."
             local db_pass=$(create_database "$original_site_name")
             
+            # 如果数据库创建失败，则退出
+            if [ $? -ne 0 ]; then
+                show_error "数据库创建失败"
+                return 1
+            fi
+            
             # 导入数据库
             if [ -n "$sql_file" ] && [ -f "$sql_file" ]; then
                 show_info "正在导入数据库..."
-                if mysql "$original_site_name" < "$sql_file" 2>/tmp/mysql_error; then
+                local mysql_import_cmd="mysql $original_site_name"
+                
+                # 检查MySQL是否需要密码
+                if ! check_mysql_password; then
+                    local mysql_root_pass=$(get_mysql_root_password)
+                    if [ $? -ne 0 ]; then
+                        return 1
+                    fi
+                    mysql_import_cmd="mysql -uroot -p'$mysql_root_pass' $original_site_name"
+                fi
+                
+                if eval "$mysql_import_cmd < \"$sql_file\"" 2>/tmp/mysql_error; then
                     show_success "数据库导入成功：$sql_file"
                 else
                     show_error "数据库导入失败，错误信息："
@@ -801,7 +973,6 @@ install_wordpress() {
             systemctl reload nginx
             
             show_success "WordPress安装完成"
-            echo "站点URL: http://$site_name"
             echo "数据库名: $original_site_name"
             echo "数据库用户: $original_site_name"
             echo "数据库密码: $db_pass"
@@ -826,9 +997,18 @@ backup_single_site() {
         return 1
     fi
     
-    local db_name=$(grep "DB_NAME" "$config_file" | cut -d "'" -f 4)
-    local db_user=$(grep "DB_USER" "$config_file" | cut -d "'" -f 4)
-    local db_pass=$(grep "DB_PASSWORD" "$config_file" | cut -d "'" -f 4)
+    # 使用新的函数提取数据库信息
+    local credentials
+    credentials=($(extract_db_credentials "$config_file"))
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+    
+    local db_name="${credentials[0]}"
+    local db_user="${credentials[1]}"
+    local db_pass="${credentials[2]}"
+    
+    show_info "数据库信息: 名称=$db_name, 用户=$db_user"
     
     # 备份数据库
     local backup_file="$BACKUP_PATH/${site_name}-${current_time}.tar.gz"
@@ -844,9 +1024,40 @@ backup_single_site() {
         fi
     fi
     
-    mysqldump -u"$db_user" -p"$db_pass" "$db_name" > "$site_path/$site_name.sql"
+    show_info "正在备份数据库..."
+    if [ -n "$db_pass" ]; then
+        mysqldump -u"$db_user" -p"$db_pass" "$db_name" > "$site_path/$site_name.sql" 2>/dev/null
+    else
+        mysqldump -u"$db_user" "$db_name" > "$site_path/$site_name.sql" 2>/dev/null
+    fi
+    
+    # 检查备份是否成功
+    if [ $? -ne 0 ]; then
+        show_error "数据库备份失败，可能是密码错误"
+        show_info "尝试使用root账户备份..."
+        
+        # 检查MySQL是否需要密码
+        if check_mysql_password; then
+            mysqldump -uroot "$db_name" > "$site_path/$site_name.sql"
+        else
+            local mysql_root_pass=$(get_mysql_root_password)
+            if [ $? -ne 0 ]; then
+                return 1
+            fi
+            mysqldump -uroot -p"$mysql_root_pass" "$db_name" > "$site_path/$site_name.sql"
+        fi
+        
+        # 再次检查备份是否成功
+        if [ $? -ne 0 ]; then
+            show_error "使用root账户备份也失败，无法完成备份"
+            return 1
+        fi
+        
+        show_success "使用root账户备份成功"
+    fi
     
     # 打包站点
+    show_info "正在打包站点文件..."
     cd /var/www
     tar czf "$backup_file" "$site_name"
     secure_path "$backup_file" "file"
@@ -932,33 +1143,108 @@ restore_site() {
                     local temp_dir=$(mktemp -d)
                     tar xzf "$backup" -C "$temp_dir"
                     
-                    # 获取SQL文件
-                    local sql_file=$(find "$temp_dir/$site" -name "*.sql" -type f)
+                    # 查找所有SQL文件
+                    local sql_files=()
+                    while IFS= read -r -d '' file; do
+                        sql_files+=("$file")
+                    done < <(find "$temp_dir/$site" -name "*.sql" -type f -print0)
+                    
+                    local sql_file=""
+                    # 如果找到多个SQL文件，让用户选择
+                    if [ ${#sql_files[@]} -gt 1 ]; then
+                        show_info "在备份中找到多个SQL文件:"
+                        for i in "${!sql_files[@]}"; do
+                            echo "$((i+1))) ${sql_files[$i]}"
+                        done
+                        
+                        local valid_selection=false
+                        while [ "$valid_selection" = false ]; do
+                            echo -n "请选择要导入的SQL文件 [1-${#sql_files[@]}]: "
+                            read choice
+                            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#sql_files[@]}" ]; then
+                                sql_file="${sql_files[$((choice-1))]}"
+                                valid_selection=true
+                            else
+                                show_error "无效的选择，请输入1-${#sql_files[@]}之间的数字"
+                            fi
+                        done
+                    # 如果只找到一个SQL文件
+                    elif [ ${#sql_files[@]} -eq 1 ]; then
+                        sql_file="${sql_files[0]}"
+                        show_info "在备份中找到SQL文件: $(basename "$sql_file")"
+                    else
+                        show_warning "在备份中未找到SQL文件，跳过数据库恢复"
+                    fi
                     
                     if [ -n "$sql_file" ]; then
                         # 创建数据库
                         local db_pass=$(create_database "$site")
                         
+                        # 如果数据库创建失败，则退出
+                        if [ $? -ne 0 ]; then
+                            show_error "数据库创建失败"
+                            rm -rf "$temp_dir"
+                            return 1
+                        fi
+                        
                         # 导入数据库
-                        show_info "正在导入数据库..."
-                        if mysql "$site" < "$sql_file" 2>/tmp/mysql_error; then
-                            show_success "数据库导入成功：$sql_file"
+                        show_info "正在导入数据库: $(basename "$sql_file")..."
+                        local mysql_import_cmd="mysql $site"
+                        
+                        # 检查MySQL是否需要密码
+                        if ! check_mysql_password; then
+                            local mysql_root_pass=$(get_mysql_root_password)
+                            if [ $? -ne 0 ]; then
+                                rm -rf "$temp_dir"
+                                return 1
+                            fi
+                            mysql_import_cmd="mysql -uroot -p'$mysql_root_pass' $site"
+                        fi
+                        
+                        if eval "$mysql_import_cmd < \"$sql_file\"" 2>/tmp/mysql_error; then
+                            show_success "数据库导入成功：$(basename "$sql_file")"
                         else
                             show_error "数据库导入失败，错误信息："
                             cat /tmp/mysql_error
                             rm -f /tmp/mysql_error
+                            rm -rf "$temp_dir"
                             return 1
                         fi
                         rm -f /tmp/mysql_error
                         
-                        # 更新配置
-                        show_info "更新WordPress配置..."
-                        update_wp_config "$temp_dir/$site" "$site" "$db_pass"
+                        # 检查是否有原始的wp-config.php文件
+                        if [ -f "$temp_dir/$site/wp-config.php" ]; then
+                            # 提取原始数据库信息用于参考（只是为了日志显示）
+                            local credentials
+                            credentials=($(extract_db_credentials "$temp_dir/$site/wp-config.php"))
+                            if [ $? -eq 0 ]; then
+                                show_info "原始数据库信息: 名称=${credentials[0]}, 用户=${credentials[1]}"
+                            fi
+                            
+                            # 更新配置
+                            show_info "更新WordPress配置..."
+                            update_wp_config "$temp_dir/$site" "$site" "$db_pass"
+                        else
+                            show_warning "未找到wp-config.php文件，无法自动更新配置"
+                        fi
                     fi
                     
                     # 移动到最终位置
-                    rm -rf "/var/www/$site"
+                    if [ -d "/var/www/$site" ]; then
+                        show_warning "目标目录 /var/www/$site 已存在"
+                        echo -n "是否覆盖？[y/N] "
+                        read -r answer
+                        if [[ $answer =~ ^[Yy]$ ]]; then
+                            rm -rf "/var/www/$site"
+                        else
+                            show_error "还原已取消"
+                            rm -rf "$temp_dir"
+                            return 1
+                        fi
+                    fi
+                    
                     mv "$temp_dir/$site" "/var/www/"
+                    rm -rf "$temp_dir"
                     
                     # 设置权限
                     set_permissions "/var/www/$site"
