@@ -133,13 +133,13 @@ enable_fastcgi_cache() {
     # FastCGI缓存配置
     fastcgi_cache $CACHE_ZONE_NAME;
     fastcgi_cache_key "\$scheme\$request_method\$host\$request_uri";
-    fastcgi_cache_valid 200 301 302 10m;
-    fastcgi_cache_valid 404 1m;
+    #fastcgi_cache_valid 200 301 302 10m;
+    fastcgi_cache_valid 404 403 1m;
     fastcgi_cache_min_uses 1;
     fastcgi_cache_use_stale error timeout invalid_header updating http_500 http_503;
-    fastcgi_cache_bypass \$cookie_nocache \$arg_nocache \$arg_comment;
-    fastcgi_no_cache \$cookie_nocache \$arg_nocache \$arg_comment;
-    add_header X-FastCGI-Cache \$upstream_cache_status;
+    #fastcgi_cache_bypass \$cookie_nocache \$arg_nocache \$arg_comment;
+    #fastcgi_no_cache \$cookie_nocache \$arg_nocache \$arg_comment;
+    #add_header X-FastCGI-Cache \$upstream_cache_status;
 
     # 超时配置
     fastcgi_connect_timeout 600;
