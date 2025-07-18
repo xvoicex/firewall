@@ -110,6 +110,35 @@ detect_cache_plugins() {
     return 0
 }
 
+# 获取站点域名
+get_site_domain() {
+    local site_path=$1
+    local domain=""
+
+    # 尝试从wp-config.php获取域名
+    if [[ -f "$site_path/wp-config.php" ]]; then
+        domain=$(grep -i "WP_HOME\|WP_SITEURL" "$site_path/wp-config.php" | head -1 | sed -n "s/.*['\"]https\?:\/\/\([^'\"\/]*\).*/\1/p")
+    fi
+
+    # 如果没有找到，尝试从数据库获取
+    if [[ -z "$domain" ]]; then
+        cd "$site_path" || return
+        domain=$(wp option get siteurl --allow-root 2>/dev/null | sed -n 's/.*:\/\/\([^\/]*\).*/\1/p')
+    fi
+
+    # 过滤掉端口号和无效字符
+    if [[ -n "$domain" ]]; then
+        domain=$(echo "$domain" | sed 's/:.*$//' | tr -d '\r\n\t ')
+    fi
+
+    # 如果还是没有找到或为空，使用站点目录名
+    if [[ -z "$domain" || "$domain" == ":" ]]; then
+        domain=$(basename "$site_path").local
+    fi
+
+    echo "$domain"
+}
+
 # 获取插件特定的清理命令
 get_cache_clear_commands() {
     local site_path=$1
@@ -129,10 +158,12 @@ get_cache_clear_commands() {
         for plugin in "${PLUGINS[@]}"; do
             case "$plugin" in
                 "WP Super Cache")
+                    # WP Super Cache: 尝试多种清理方法
                     commands+=("wp super-cache flush --allow-root")
+                    commands+=("wp eval 'if (function_exists(\"wp_cache_clear_cache\")) { wp_cache_clear_cache(); echo \"WP Super Cache cleared\"; }' --allow-root")
                     ;;
                 "LiteSpeed Cache")
-                    commands+=("wp litespeed-purge all --allow-root")
+                    # LiteSpeed Cache: 跳过专用命令，直接使用通用方法
                     ;;
                 "W3 Total Cache")
                     commands+=("wp w3-total-cache flush all --allow-root")
