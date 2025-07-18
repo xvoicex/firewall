@@ -13,8 +13,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # 无颜色
 
-# 日志文件路径
-LOG_FILE="/var/log/wordpress_cache_cleaner.log"
+# 扫描目录
 SCAN_DIR="/var/www"
 
 # 初始化变量
@@ -354,19 +353,7 @@ show_summary_report() {
     done
     echo ""
 
-    echo "详细日志请查看: $LOG_FILE"
     echo "=========================================="
-
-    # 记录汇总到日志
-    log_message "INFO" "缓存清理完成 - 总计:$TOTAL_SITES 成功:$SUCCESS_COUNT 失败:$FAILED_COUNT"
-
-    # 记录插件统计到日志
-    if [[ ${#PLUGIN_STATS[@]} -gt 0 ]]; then
-        log_message "INFO" "缓存插件统计:"
-        for plugin in "${!PLUGIN_STATS[@]}"; do
-            log_message "INFO" "  ${CACHE_PLUGINS[$plugin]}: ${PLUGIN_STATS[$plugin]} 个站点"
-        done
-    fi
 }
 
 # 主函数
@@ -375,8 +362,7 @@ main() {
     echo "开始时间: $(date '+%Y-%m-%d %H:%M:%S')"
     echo ""
     
-    # 初始化日志文件
-    echo "========== WordPress缓存清理日志 ==========" > "$LOG_FILE"
+    # 脚本开始执行
     log_message "INFO" "脚本开始执行"
     
     # 检查权限和环境
@@ -411,7 +397,7 @@ main() {
     
     # 显示汇总报告
     show_summary_report
-    
+
     log_message "INFO" "脚本执行完成"
 }
 
