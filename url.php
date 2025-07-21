@@ -733,10 +733,10 @@ class InteractiveURLReplacer {
         while (true) {
             $backup_choice = $this->getUserInput("是否在操作前创建数据库备份？(Y/n): ");
 
-            if (strtolower($backup_choice) === 'y' || empty($backup_choice)) {
+            if (strtolower($backup_choice) === 'y' ) {
                 $this->createDatabaseBackup();
                 break;
-            } elseif (strtolower($backup_choice) === 'n') {
+            } elseif (strtolower($backup_choice) === 'n' || empty($backup_choice)) {
                 $this->colorOutput("⚠️  跳过数据库备份\n", 'yellow');
                 $this->log("用户选择跳过数据库备份");
                 break;
