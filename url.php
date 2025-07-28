@@ -785,9 +785,9 @@ class InteractiveURLReplacer {
             while (true) {
                 $continue_choice = $this->getUserInput("是否继续执行替换操作？(y/N): ");
 
-                if (strtolower($continue_choice) === 'y') {
+                if (strtolower($continue_choice) === 'y' || empty($continue_choice)) {
                     break;
-                } elseif (strtolower($continue_choice) === 'n' || empty($continue_choice)) {
+                } elseif (strtolower($continue_choice) === 'n' ) {
                     $this->colorOutput("操作已取消\n", 'yellow');
                     exit(0);
                 } else {
