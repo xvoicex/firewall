@@ -19,7 +19,7 @@
 // 设置错误报告和环境
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-ini_set('memory_limit', '512M');
+ini_set('memory_limit', '1024M');  // 增加内存限制到1GB
 set_time_limit(0);
 
 // 统一的交互式URL替换脚本 - 完全独立，不依赖其他文件
@@ -276,6 +276,8 @@ class InteractiveURLReplacer {
                             $urls[] = array('url' => $url, 'source' => 'database_' . $row['option_name'], 'priority' => 10);
                         }
                     }
+                    // 释放查询结果内存
+                    $result->free();
                 }
 
                 $mysqli->close();
@@ -1537,7 +1539,7 @@ if (!class_exists('DomainNameChanger')) {
         protected $total_replace_time = 0; //数据替换时间
         protected $debug = false;
 
-        protected $get_row_per_query = 10000;
+        protected $get_row_per_query = 1000;  // 减少每次查询的行数以降低内存使用
 
         public function __construct($config) {
             $this->change_from = $config['change_from'];
@@ -1569,6 +1571,8 @@ if (!class_exists('DomainNameChanger')) {
             while ($row = $result->fetch_array()) {
                 $this->tables[$row[0]] = array();
             }
+            // 释放查询结果内存
+            $result->free();
         }
 
         //构造表结构
@@ -1579,6 +1583,8 @@ if (!class_exists('DomainNameChanger')) {
                 while ($row = $result->fetch_assoc()) {
                     $this->tables[$table_name][$row['Field']] = $row['Type'];
                 }
+                // 释放查询结果内存
+                $result->free();
             }
         }
 
@@ -1726,6 +1732,8 @@ if (!class_exists('DomainNameChanger')) {
                         $result_total = $this->mysqli->query($select_total_sql);
                         $row = $result_total->fetch_assoc();
                         $total = $row['total'];
+                        // 释放查询结果内存
+                        $result_total->free();
 
                         $query_time_end = microtime(1);
                         $each_table_query_run += ($query_time_end - $query_time_start);
@@ -1766,16 +1774,26 @@ if (!class_exists('DomainNameChanger')) {
                                     if (($this->count >= $this->min_print && $this->count <= $this->max_print) || $this->max_print === -1) {
                                         continue;
                                     } else {
+                                        // 释放查询结果内存
+                                        $result->free();
                                         break 2;
                                     }
                                 }
                             }
+
+                            // 释放查询结果内存
+                            $result->free();
 
                             if ($total <= (($page - 1) * $this->get_row_per_query + $current_get)) {
                                 break;
                             }
 
                             $page++;
+
+                            // 每处理10页数据后进行垃圾回收，释放内存
+                            if ($page % 10 == 0) {
+                                gc_collect_cycles();
+                            }
                         }
 
                         $this->total_query_time += $each_table_query_run;
