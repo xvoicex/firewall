@@ -6,10 +6,10 @@
  * 功能特性：
  * - 站点发现：自动扫描WordPress站点
  * - 智能URL猜测：基于现有逻辑的精准猜测
- * - 增强功能：确认步骤、备份、日志、回滚、进度显示
+ * - 增强功能：确认步骤、备份、日志、回滚
  * 
  * 使用方法:
- * php interactive_url_replacer.php
+ * php url.php
  * 
  * @author vince
  * @version 1.0
@@ -428,7 +428,6 @@ class InteractiveURLReplacer {
         $this->colorOutput("║  • 精准URL猜测和选择                                         ║\n", 'cyan');
         $this->colorOutput("║  • 操作确认和备份功能                                        ║\n", 'cyan');
         $this->colorOutput("║  • 详细日志和回滚支持                                        ║\n", 'cyan');
-        $this->colorOutput("║  • 实时进度显示                                              ║\n", 'cyan');
         $this->colorOutput("║                                                              ║\n", 'cyan');
         $this->colorOutput("╚══════════════════════════════════════════════════════════════╝\n", 'cyan');
         echo "\n";
@@ -1184,6 +1183,9 @@ class InteractiveURLReplacer {
         // 设置SQL模式以允许无效日期
         $mysqli->query("SET SESSION sql_mode = 'ALLOW_INVALID_DATES'");
 
+        // 清理LiteSpeed缓存表以避免重复键约束冲突
+        $this->clearLiteSpeedCacheTables($mysqli, $table_prefix);
+
         // 修复posts表中的无效日期
         $fix_queries = array(
             "UPDATE {$table_prefix}posts SET post_date_gmt = NULL WHERE post_date_gmt = '0000-00-00 00:00:00'",
@@ -1203,6 +1205,50 @@ class InteractiveURLReplacer {
             $this->log("修复了 {$fixed_count} 个无效日期记录");
         } else {
             $this->log("未发现需要修复的无效日期");
+        }
+    }
+
+    /**
+     * 清理LiteSpeed缓存表以避免重复键约束冲突
+     */
+    private function clearLiteSpeedCacheTables($mysqli, $table_prefix) {
+        $this->log("检查并清理LiteSpeed缓存表...");
+
+        // LiteSpeed Cache插件相关的表
+        $litespeed_tables = array(
+            $table_prefix . 'litespeed_url',
+            $table_prefix . 'litespeed_url_file',
+            $table_prefix . 'litespeed_avatar',
+            $table_prefix . 'litespeed_cssjs',
+            $table_prefix . 'litespeed_optimizer'
+        );
+
+        $cleared_tables = 0;
+        foreach ($litespeed_tables as $table_name) {
+            // 检查表是否存在
+            $check_query = "SHOW TABLES LIKE '{$table_name}'";
+            $result = $mysqli->query($check_query);
+
+            if ($result && $result->num_rows > 0) {
+                // 表存在，清空它
+                $truncate_query = "TRUNCATE TABLE `{$table_name}`";
+                if ($mysqli->query($truncate_query)) {
+                    $this->log("已清空LiteSpeed缓存表: {$table_name}");
+                    $cleared_tables++;
+                } else {
+                    $this->log("警告: 无法清空表 {$table_name}: " . $mysqli->error);
+                }
+            }
+
+            if ($result) {
+                $result->free();
+            }
+        }
+
+        if ($cleared_tables > 0) {
+            $this->log("成功清理了 {$cleared_tables} 个LiteSpeed缓存表");
+        } else {
+            $this->log("未发现LiteSpeed缓存表");
         }
     }
 
